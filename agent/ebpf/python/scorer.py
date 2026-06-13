@@ -6,7 +6,7 @@ from __future__ import annotations
 from events import GhostEvent
 
 THRESHOLD_LOG   = 10
-THRESHOLD_ALERT = 60
+THRESHOLD_ALERT = 40
 
 # Exact sensitive file paths (not directories)
 SENSITIVE_FILES = {
