@@ -1,16 +1,16 @@
-# Ghost Layer Technologies — Ghost IT
+ Ghost Layer Technologies — Ghost IT
 
 Autonomous Digital Immune System for Indian SMEs
 
-## Architecture
-- agent/ → eBPF kernel agent (Dhakshin)
-- pipeline/ → Data ingestion + DuckDB storage (Deepaksanjay)
-- deception/ → Canary tokens + honeypots (Keerthivahanan)
+ Architecture
+- agent/ → eBPF kernel agent 
+- pipeline/ → Data ingestion + DuckDB storage 
+- deception/ → Canary tokens + honeypots
 - detection/ → Causal AI + ML detection engine
-- dashboard/ → Frontend + API (Narine)
+- dashboard/ → Frontend + API 
 - shared/ → Crypto, config, utilities
 
-## Stack
+Stack
 - Kernel: eBPF + libbpf
 - Backend: Python 3.14
 - Database: DuckDB
