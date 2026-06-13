@@ -1,0 +1,196 @@
+import { useState, useEffect, useCallback } from "react";
+import "./App.css";
+
+const API = "http://127.0.0.1:8000";
+const REFRESH_MS = 5000;
+
+function useFetch(endpoint) {
+  const [data, setData]   = useState(null);
+  const [error, setError] = useState(null);
+
+  const fetch_ = useCallback(() => {
+    fetch(`${API}${endpoint}`)
+      .then(r => r.json())
+      .then(setData)
+      .catch(e => setError(e.message));
+  }, [endpoint]);
+
+  useEffect(() => {
+    fetch_();
+    const id = setInterval(fetch_, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [fetch_]);
+
+  return { data, error };
+}
+
+function StatCard({ label, value, highlight }) {
+  return (
+    <div className={`stat-card ${highlight ? "highlight" : ""}`}>
+      <div className="stat-value">{value ?? "—"}</div>
+      <div className="stat-label">{label}</div>
+    </div>
+  );
+}
+
+function StatsBar() {
+  const { data } = useFetch("/stats");
+  return (
+    <div className="stats-bar">
+      <StatCard label="Total Events"     value={data?.total}        />
+      <StatCard label="Alerts"           value={data?.alerts}       highlight={data?.alerts > 0} />
+      <StatCard label="Unique Processes" value={data?.unique_procs} />
+      <StatCard label="Unique PIDs"      value={data?.unique_pids}  />
+      <StatCard label="Last Event"       value={data?.last_seen?.slice(11, 19)} />
+    </div>
+  );
+}
+
+function TopProcesses() {
+  const { data } = useFetch("/top?limit=8");
+  return (
+    <div className="panel">
+      <h2>Top Processes</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Process</th>
+            <th>Events</th>
+            <th>Alerts</th>
+            <th>Max Score</th>
+            <th>Types</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data?.processes?.map((p, i) => (
+            <tr key={i} className={p.alerts > 0 ? "row-alert" : ""}>
+              <td className="mono">{p.comm}</td>
+              <td>{p.total}</td>
+              <td>{p.alerts > 0 ? <span className="badge-alert">{p.alerts}</span> : 0}</td>
+              <td>
+                <div className="score-bar">
+                  <div className="score-fill" style={{ width: `${p.max_score}%`,
+                    background: p.max_score >= 60 ? "#ff4444" :
+                                p.max_score >= 30 ? "#ffaa00" : "#00cfff" }} />
+                  <span>{p.max_score}</span>
+                </div>
+              </td>
+              <td>{p.event_types}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AlertFeed() {
+  const { data } = useFetch("/alerts?limit=20");
+  const alerts   = data?.alerts ?? [];
+  return (
+    <div className="panel panel-alerts">
+      <h2>🚨 Alerts <span className="count">{alerts.length}</span></h2>
+      {alerts.length === 0
+        ? <div className="empty">No alerts — system clean</div>
+        : alerts.map((e, i) => (
+          <div key={i} className="alert-row">
+            <span className="alert-time">{String(e.received_at).slice(11, 19)}</span>
+            <span className="alert-comm mono">{e.comm}</span>
+            <span className="alert-type">{e.type}</span>
+            <span className="alert-score">{e.score}</span>
+            <span className="alert-reasons">{(e.reasons ?? []).join(", ")}</span>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+function EventFeed() {
+  const [type,  setType]  = useState("");
+  const [comm,  setComm]  = useState("");
+  const [min,   setMin]   = useState(0);
+
+  const params = new URLSearchParams({ limit: 50 });
+  if (type) params.set("type",      type);
+  if (comm) params.set("comm",      comm);
+  if (min)  params.set("min_score", min);
+
+  const { data } = useFetch(`/events?${params}`);
+  const events   = data?.events ?? [];
+
+  return (
+    <div className="panel">
+      <h2>Event Feed <span className="count">{data?.total ?? 0}</span></h2>
+      <div className="filters">
+        <select value={type} onChange={e => setType(e.target.value)}>
+          <option value="">All types</option>
+          {["exec","open","connect","clone","unlink","canary_hit"].map(t =>
+            <option key={t} value={t}>{t}</option>
+          )}
+        </select>
+        <input placeholder="Filter process..." value={comm}
+               onChange={e => setComm(e.target.value)} />
+        <label>Min score:
+          <input type="range" min={0} max={100} step={5}
+                 value={min} onChange={e => setMin(Number(e.target.value))} />
+          <span>{min}</span>
+        </label>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th><th>PID</th><th>Process</th>
+            <th>Type</th><th>Score</th><th>File / Addr</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className={e.alert ? "row-alert" : e.score >= 30 ? "row-warn" : ""}>
+              <td className="mono">{String(e.received_at).slice(11, 19)}</td>
+              <td className="mono">{e.pid}</td>
+              <td className="mono">{e.comm}</td>
+              <td><span className={`tag tag-${e.type}`}>{e.type}</span></td>
+              <td>
+                <span className={`score ${e.score >= 60 ? "score-high" :
+                                          e.score >= 30 ? "score-med" : "score-low"}`}>
+                  {e.score}
+                </span>
+              </td>
+              <td className="mono small">
+                {e.file ?? (e.daddr ? `${e.daddr}:${e.dport}` : "—")}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <div className="app">
+      <header className="header">
+        <div className="logo">
+          <span className="logo-ghost">◈</span>
+          <span className="logo-text">Ghost IT</span>
+          <span className="logo-sub">Autonomous Digital Immune System</span>
+        </div>
+        <div className="header-right">
+          <span className="live-dot" />
+          <span className="live-label">LIVE</span>
+        </div>
+      </header>
+
+      <StatsBar />
+
+      <div className="grid-2">
+        <TopProcesses />
+        <AlertFeed />
+      </div>
+
+      <EventFeed />
+    </div>
+  );
+}

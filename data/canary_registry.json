@@ -4,7 +4,7 @@
     "token_type": "file",
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/.env",
     "description": "fake .env file with credentials",
-    "created_at": "2026-06-13T09:21:45.193419+00:00",
+    "created_at": "2026-06-13T09:34:38.102397+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -13,7 +13,7 @@
     "token_type": "file",
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/id_rsa",
     "description": "fake SSH private key",
-    "created_at": "2026-06-13T09:21:45.195312+00:00",
+    "created_at": "2026-06-13T09:34:38.104975+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -22,16 +22,16 @@
     "token_type": "file",
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/passwords.txt",
     "description": "fake passwords list",
-    "created_at": "2026-06-13T09:21:45.195754+00:00",
+    "created_at": "2026-06-13T09:34:38.105630+00:00",
     "hit_count": 2,
-    "last_hit": "2026-06-13T09:22:30.344613+00:00"
+    "last_hit": "2026-06-13T09:35:00.060511+00:00"
   },
   "6cf904435dd36f6a": {
     "token_id": "6cf904435dd36f6a",
     "token_type": "file",
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/config.yml",
     "description": "fake service config",
-    "created_at": "2026-06-13T09:21:45.196141+00:00",
+    "created_at": "2026-06-13T09:34:38.106028+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -40,7 +40,7 @@
     "token_type": "file",
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/backup.sql",
     "description": "fake SQL backup",
-    "created_at": "2026-06-13T09:21:45.196495+00:00",
+    "created_at": "2026-06-13T09:34:38.106652+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -49,7 +49,7 @@
     "token_type": "http",
     "value": "http:/api/v1/admin",
     "description": "fake admin API endpoint",
-    "created_at": "2026-06-13T09:21:45.196776+00:00",
+    "created_at": "2026-06-13T09:34:38.107033+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -58,16 +58,16 @@
     "token_type": "http",
     "value": "http:/api/v1/keys",
     "description": "fake API key listing endpoint",
-    "created_at": "2026-06-13T09:21:45.197081+00:00",
-    "hit_count": 1,
-    "last_hit": "2026-06-13T09:22:30.364651+00:00"
+    "created_at": "2026-06-13T09:34:38.107396+00:00",
+    "hit_count": 0,
+    "last_hit": null
   },
   "434c51d7d0377759": {
     "token_id": "434c51d7d0377759",
     "token_type": "http",
     "value": "http:/internal/config",
     "description": "fake internal config endpoint",
-    "created_at": "2026-06-13T09:21:45.197293+00:00",
+    "created_at": "2026-06-13T09:34:38.107648+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -76,7 +76,7 @@
     "token_type": "http",
     "value": "http:/backup/dump",
     "description": "fake backup endpoint",
-    "created_at": "2026-06-13T09:21:45.197493+00:00",
+    "created_at": "2026-06-13T09:34:38.107855+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -85,16 +85,16 @@
     "token_type": "http",
     "value": "http:/.env",
     "description": "fake .env via HTTP",
-    "created_at": "2026-06-13T09:21:45.197747+00:00",
+    "created_at": "2026-06-13T09:34:38.108068+00:00",
     "hit_count": 1,
-    "last_hit": "2026-06-13T09:22:30.358286+00:00"
+    "last_hit": "2026-06-13T09:35:00.071017+00:00"
   },
   "a2043868e46b03b7": {
     "token_id": "a2043868e46b03b7",
     "token_type": "http",
     "value": "http:/admin/credentials",
     "description": "fake credential endpoint",
-    "created_at": "2026-06-13T09:21:45.198139+00:00",
+    "created_at": "2026-06-13T09:34:38.108425+00:00",
     "hit_count": 0,
     "last_hit": null
   }
