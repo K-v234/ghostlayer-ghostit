@@ -1,0 +1,65 @@
+
+services:
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.pipeline
+    container_name: ghostit-pipeline
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - ghostit-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  canary:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.canary
+    container_name: ghostit-canary
+    ports:
+      - "8080:8080"
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    restart: unless-stopped
+
+  detection:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.detection
+    container_name: ghostit-detection
+    volumes:
+      - ghostit-data:/data
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: ghostit-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - pipeline
+    restart: unless-stopped
+
+volumes:
+  ghostit-data:
+    driver: local
+
+networks:
+  default:
+    name: ghostit-network

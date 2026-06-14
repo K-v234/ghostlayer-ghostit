@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY deception/canary/ ./deception/canary/
+
+CMD ["python3", "deception/canary/server.py", \
+     "--http-port", "8080", \
+     "--pipeline-host", "pipeline", \
+     "--pipeline-port", "9000"]

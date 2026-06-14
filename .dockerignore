@@ -1,0 +1,10 @@
+.git
+node_modules
+__pycache__
+*.pyc
+*.db
+data/
+*.log
+agent/ebpf/ghost_agent
+agent/ebpf/ghost_agent.bpf.o
+agent/ebpf/vmlinux.h
