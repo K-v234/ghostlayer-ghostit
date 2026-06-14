@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 def api_get(url: str) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=5) as r:
+        with urllib.request.urlopen(url, timeout=15) as r:
             return json.loads(r.read())
     except Exception as ex:
         log.error(f"API error {url}: {ex}")
