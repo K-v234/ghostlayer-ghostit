@@ -289,6 +289,26 @@ def events_by_comm(comm: str, limit: int = Query(100, ge=1, le=500)):
 # ------------------------------------------------------------------ #
 # Main                                                               #
 # ------------------------------------------------------------------ #
+
+
+# ------------------------------------------------------------------ #
+# Chain state endpoint                                               #
+# ------------------------------------------------------------------ #
+import pathlib as _pathlib
+
+CHAIN_STATE_FILE = _pathlib.Path.home() / "ghostlayer/data/chain_state.json"
+
+@app.get("/chains")
+def get_chains():
+    """Active attack chains from detection engine."""
+    try:
+        if CHAIN_STATE_FILE.exists():
+            return json.loads(CHAIN_STATE_FILE.read_text())
+        return {"chains": [], "highest_severity": "none"}
+    except Exception as e:
+        return {"chains": [], "error": str(e)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tcp-host",  default="127.0.0.1")
@@ -315,3 +335,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

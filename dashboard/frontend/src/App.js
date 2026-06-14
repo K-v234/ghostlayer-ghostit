@@ -168,6 +168,75 @@ function EventFeed() {
   );
 }
 
+
+function ChainPanel() {
+  const { data } = useFetch("/chains");
+  const chains   = data?.chains ?? [];
+  const severity = data?.highest_severity ?? "none";
+
+  const color = {
+    critical: "#ff4444",
+    high:     "#ffaa00",
+    medium:   "#00cfff",
+    low:      "#00ff88",
+    none:     "#4a5568",
+  };
+
+  return (
+    <div className="panel" style={{borderColor: color[severity] || "#1e2535"}}>
+      <h2>⛓ Attack Chains
+        <span className="count">{chains.length}</span>
+        {severity !== "none" && (
+          <span style={{marginLeft:8, color: color[severity],
+                        fontSize:11, fontWeight:700}}>
+            {severity.toUpperCase()}
+          </span>
+        )}
+      </h2>
+      {chains.length === 0
+        ? <div className="empty">No active attack chains</div>
+        : chains.map((c, i) => (
+          <div key={i} style={{
+            border: `1px solid ${color[c.severity]}22`,
+            borderLeft: `3px solid ${color[c.severity]}`,
+            borderRadius: 6, padding: "10px 12px", marginBottom: 8,
+            background: "#0d1018",
+          }}>
+            <div style={{display:"flex", justifyContent:"space-between", marginBottom:6}}>
+              <span style={{color:"#fff", fontWeight:600, fontFamily:"monospace"}}>
+                [{c.chain_id}]
+              </span>
+              <span style={{color: color[c.severity], fontWeight:700, fontSize:11}}>
+                {c.severity.toUpperCase()}
+              </span>
+            </div>
+            <div style={{color:"#00cfff", fontSize:12, marginBottom:4}}>
+              Stage: {c.current_stage}
+              {c.escalating && <span style={{color:"#ff4444", marginLeft:8}}>⚠ ESCALATING</span>}
+            </div>
+            <div style={{color:"#4a5568", fontSize:11, marginBottom:4}}>
+              {c.event_count} events · {c.duration_s}s duration
+            </div>
+            <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+              {c.stages.map((s,j) => (
+                <span key={j} style={{
+                  background:"#151a27", color:"#c8d0e0",
+                  padding:"2px 8px", borderRadius:10, fontSize:10,
+                }}>
+                  {s}
+                </span>
+              ))}
+            </div>
+            <div style={{marginTop:6, fontSize:11, color:"#4a5568"}}>
+              Techniques: {c.techniques.join(", ")}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <div className="app">
@@ -189,6 +258,8 @@ export default function App() {
         <TopProcesses />
         <AlertFeed />
       </div>
+
+      <ChainPanel />
 
       <EventFeed />
     </div>

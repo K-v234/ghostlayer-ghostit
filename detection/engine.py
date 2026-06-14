@@ -182,6 +182,9 @@ class DetectionEngine:
             active = self.chain_tracker.active_chains()
             if active:
                 log.info(f"Active chains: {len(active)} | Highest severity: {self.chain_tracker.highest_severity()}")
+                import pathlib, json as _json
+                state = {"chains": active, "highest_severity": self.chain_tracker.highest_severity()}
+                pathlib.Path.home().joinpath("ghostlayer/data/chain_state.json").write_text(_json.dumps(state))
 
             send_to_pipeline(unique, self.p_host, self.p_port)
 
