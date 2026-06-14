@@ -17,6 +17,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from detection.rules      import check_event, check_sequence, Detection
+from detection.mitre      import get_mitre_tag, KillChainStage
+from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
 
@@ -40,17 +42,31 @@ def api_get(url: str) -> dict:
 def send_to_pipeline(detections: list, host: str, port: int):
     if not detections:
         return
-    events = [{
-        "ts":      int(time.time_ns()),
-        "pid":     0, "ppid": 0, "uid": 0, "gid": 0,
-        "comm":    f"detection:{d.rule_id}",
-        "type":    "detection",
-        "score":   100,
-        "alert":   True,
-        "reasons": [d.rule_id, d.title, f"confidence:{d.confidence}"],
-        "file":    d.description,
-        "daddr":   None, "dport": None,
-    } for d in detections]
+    events = []
+    for d in detections:
+        tag = get_mitre_tag(d.rule_id)
+        reasons = [
+            d.rule_id,
+            d.title,
+            f"confidence:{d.confidence}",
+        ]
+        if tag:
+            reasons += [
+                f"tactic:{tag.tactic}",
+                f"technique:{tag.technique_id}",
+                f"kill_chain:{tag.kill_chain.label()}",
+            ]
+        events.append({
+            "ts":      int(time.time_ns()),
+            "pid":     0, "ppid": 0, "uid": 0, "gid": 0,
+            "comm":    f"detection:{d.rule_id}",
+            "type":    "detection",
+            "score":   100,
+            "alert":   True,
+            "reasons": reasons,
+            "file":    d.description,
+            "daddr":   None, "dport": None,
+        })
 
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -88,6 +104,7 @@ class DetectionEngine:
         data2 = api_get(f"{self.api}/events?limit=1&offset=0&min_score=0")
         events = data2.get("events", [])
         self.max_id_at_start = events[0].get("id", 0) if events else 0
+        self.chain_tracker = ChainTracker()
         log.info(f"Max event ID at startup: {self.max_id_at_start}")
         return set()
 
@@ -155,9 +172,17 @@ class DetectionEngine:
 
         if unique:
             for d in unique:
+                tag = get_mitre_tag(d.rule_id)
+                mitre_str = f" | {tag.tactic} {tag.technique_id} | {tag.kill_chain.label()}" if tag else ""
                 log.warning(
-                    f"[{d.severity.upper()}] {d.rule_id} — {d.title} ({d.confidence}%)"
+                    f"[{d.severity.upper()}] {d.rule_id} — {d.title} ({d.confidence}%){mitre_str}"
                 )
+                self.chain_tracker.process(d.rule_id, d.title, d.confidence)
+
+            active = self.chain_tracker.active_chains()
+            if active:
+                log.info(f"Active chains: {len(active)} | Highest severity: {self.chain_tracker.highest_severity()}")
+
             send_to_pipeline(unique, self.p_host, self.p_port)
 
         return len(unique)
