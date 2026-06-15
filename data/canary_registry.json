@@ -14,8 +14,8 @@
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/id_rsa",
     "description": "fake SSH private key",
     "created_at": "2026-06-15T02:17:22.859504+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 3,
+    "last_hit": "2026-06-15T02:34:21.815422+00:00"
   },
   "6f731a358571b2c4": {
     "token_id": "6f731a358571b2c4",
@@ -23,8 +23,8 @@
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/passwords.txt",
     "description": "fake passwords list",
     "created_at": "2026-06-15T02:17:22.860917+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 3,
+    "last_hit": "2026-06-15T02:34:21.816387+00:00"
   },
   "6cf904435dd36f6a": {
     "token_id": "6cf904435dd36f6a",
@@ -32,8 +32,8 @@
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/config.yml",
     "description": "fake service config",
     "created_at": "2026-06-15T02:17:22.862182+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 3,
+    "last_hit": "2026-06-15T02:34:21.814752+00:00"
   },
   "23f6ab694a206b92": {
     "token_id": "23f6ab694a206b92",
@@ -41,8 +41,8 @@
     "value": "/home/keerthivahanan/ghostlayer/deception/canary/canary_files/backup.sql",
     "description": "fake SQL backup",
     "created_at": "2026-06-15T02:17:22.864289+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 2,
+    "last_hit": "2026-06-15T02:34:13.982679+00:00"
   },
   "dd154413edaf4ac9": {
     "token_id": "dd154413edaf4ac9",

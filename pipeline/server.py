@@ -24,6 +24,12 @@ from fastapi.responses import JSONResponse
 import uvicorn
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from detection.ransomware import RansomwareEMADetector
+
+# Global ransomware detector (C15)
+_ransomware_detector = RansomwareEMADetector()
 from processor.enricher import enrich_batch
 
 logging.basicConfig(
