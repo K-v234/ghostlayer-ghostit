@@ -1,8 +1,14 @@
 /*
- * ghost_agent.c — Ghost IT Userspace Loader (v2 — filtered)
+ * ghost_agent.c — Ghost IT Userspace Loader v2
  *
- * Loads BPF object, injects runtime config into BPF maps,
- * then streams filtered events as JSON to stdout.
+ * Polls BOTH ring buffers:
+ *   critical_rb → never-drop, high priority events
+ *   standard_rb → normal events
+ *
+ * Streams events as newline-delimited JSON to stdout.
+ * Pipe into Rust agent or Python forwarder.
+ *
+ * Ghost Layer Technologies — CONFIDENTIAL
  */
 
 #include <stdio.h>
@@ -16,12 +22,9 @@
 #include <bpf/bpf.h>
 #include "ghost_agent.h"
 
-/* Config map keys */
 #define CFG_MIN_UID  0
 #define CFG_SELF_PID 1
-
-/* Only show events from UIDs >= this (filters out most daemon noise) */
-#define MIN_UID 1000
+#define MIN_UID      1000
 
 static volatile int running = 1;
 
@@ -30,12 +33,28 @@ static void sig_handler(int sig) { (void)sig; running = 0; }
 static const char *event_type_str(__u8 type)
 {
     switch (type) {
-        case EVENT_EXEC:    return "exec";
-        case EVENT_OPEN:    return "open";
-        case EVENT_CONNECT: return "connect";
-        case EVENT_CLONE:   return "clone";
-        case EVENT_UNLINK:  return "unlink";
-        default:            return "unknown";
+        case EVENT_EXEC:       return "exec";
+        case EVENT_OPEN:       return "open";
+        case EVENT_CONNECT:    return "connect";
+        case EVENT_CLONE:      return "clone";
+        case EVENT_UNLINK:     return "unlink";
+        case EVENT_SETUID:     return "setuid";
+        case EVENT_SETGID:     return "setgid";
+        case EVENT_PTRACE:     return "ptrace";
+        case EVENT_CAPSET:     return "capset";
+        case EVENT_MMAP_EXEC:  return "mmap_exec";
+        case EVENT_MPROTECT:   return "mprotect";
+        case EVENT_BIND:       return "bind";
+        case EVENT_LISTEN:     return "listen";
+        case EVENT_ACCEPT:     return "accept";
+        case EVENT_SENDTO:     return "sendto";
+        case EVENT_OPENAT2:    return "openat2";
+        case EVENT_RENAME:     return "rename";
+        case EVENT_CHMOD:      return "chmod";
+        case EVENT_CHOWN:      return "chown";
+        case EVENT_EXIT:       return "exit";
+        case EVENT_PRCTL:      return "prctl";
+        default:               return "unknown";
     }
 }
 
@@ -53,40 +72,25 @@ static int handle_event(void *ctx, void *data, size_t size)
 {
     (void)ctx; (void)size;
     const struct ghost_event *e = data;
-    char esc[MAX_FILENAME_LEN * 2];
-    char ip[INET_ADDRSTRLEN];
+    char esc[MAX_FILENAME_LEN * 2] = {};
 
-    printf("{\"ts\":%llu,\"pid\":%u,\"ppid\":%u,"
-           "\"uid\":%u,\"gid\":%u,\"comm\":\"%s\",\"type\":\"%s\"",
-           (unsigned long long)e->timestamp,
-           e->pid, e->ppid, e->uid, e->gid,
-           e->comm, event_type_str(e->event_type));
+    json_str(e->path, esc, sizeof(esc));
 
-    switch (e->event_type) {
-        case EVENT_EXEC:
-            json_str(e->exec.filename, esc, sizeof(esc));
-            printf(",\"file\":\"%s\"", esc);
-            json_str(e->exec.args, esc, sizeof(esc));
-            if (esc[0]) printf(",\"args\":\"%s\"", esc);
-            break;
-        case EVENT_OPEN:
-            json_str(e->open.filename, esc, sizeof(esc));
-            printf(",\"file\":\"%s\",\"flags\":%d", esc, e->open.flags);
-            break;
-        case EVENT_CONNECT:
-            inet_ntop(AF_INET, &e->connect.daddr, ip, sizeof(ip));
-            printf(",\"daddr\":\"%s\",\"dport\":%u,\"family\":%u",
-                   ip, e->connect.dport, e->connect.family);
-            break;
-        case EVENT_CLONE:
-            printf(",\"clone_flags\":%llu",
-                   (unsigned long long)e->clone_info.clone_flags);
-            break;
-        case EVENT_UNLINK:
-            json_str(e->unlink.filename, esc, sizeof(esc));
-            printf(",\"file\":\"%s\"", esc);
-            break;
-    }
+    printf("{\"ts\":%llu,\"pid\":%u,\"tgid\":%u,\"ppid\":%llu,"
+           "\"uid\":%u,\"gid\":%u,\"comm\":\"%s\","
+           "\"type\":\"%s\",\"priority\":%u,\"flags\":%u",
+           (unsigned long long)e->timestamp_ns,
+           e->pid, e->tgid,
+           (unsigned long long)e->parent_pid,
+           e->uid, e->gid,
+           e->comm,
+           event_type_str(e->event_type),
+           e->priority,
+           e->flags);
+
+    if (esc[0])
+        printf(",\"path\":\"%s\"", esc);
+
     puts("}");
     fflush(stdout);
     return 0;
@@ -94,20 +98,21 @@ static int handle_event(void *ctx, void *data, size_t size)
 
 static int inject_config(struct bpf_object *obj)
 {
-    int cfg_fd = bpf_object__find_map_fd_by_name(obj, "ghost_config");
-    if (cfg_fd < 0) {
-        fprintf(stderr, "[ghost-agent] ERROR: config map not found\n");
+    int fd = bpf_object__find_map_fd_by_name(obj, "ghost_config");
+    if (fd < 0) {
+        fprintf(stderr, "[ghost-agent] ERROR: ghost_config map not found\n");
         return -1;
     }
 
-    /* Set minimum UID filter */
-    __u32 key = CFG_MIN_UID, val = MIN_UID;
-    bpf_map_update_elem(cfg_fd, &key, &val, BPF_ANY);
+    __u32 key, val;
 
-    /* Tell kernel to ignore our own PID */
+    key = CFG_MIN_UID;
+    val = MIN_UID;
+    bpf_map_update_elem(fd, &key, &val, BPF_ANY);
+
     key = CFG_SELF_PID;
     val = (__u32)getpid();
-    bpf_map_update_elem(cfg_fd, &key, &val, BPF_ANY);
+    bpf_map_update_elem(fd, &key, &val, BPF_ANY);
 
     fprintf(stderr, "[ghost-agent] Config: min_uid=%u self_pid=%u\n",
             MIN_UID, val);
@@ -118,7 +123,8 @@ int main(void)
 {
     struct bpf_object  *obj = NULL;
     struct bpf_program *prog;
-    struct ring_buffer *rb  = NULL;
+    struct ring_buffer *rb_std  = NULL;
+    struct ring_buffer *rb_crit = NULL;
     int map_fd, err;
 
     signal(SIGINT,  sig_handler);
@@ -137,10 +143,10 @@ int main(void)
         goto cleanup;
     }
 
-    /* Inject runtime config before attaching programs */
     if (inject_config(obj) < 0)
         goto cleanup;
 
+    /* Attach all programs */
     bpf_object__for_each_program(prog, obj) {
         struct bpf_link *link = bpf_program__attach(prog);
         if (libbpf_get_error(link)) {
@@ -152,31 +158,49 @@ int main(void)
                 bpf_program__name(prog));
     }
 
-    map_fd = bpf_object__find_map_fd_by_name(obj, "events");
+    /* Setup standard ring buffer */
+    map_fd = bpf_object__find_map_fd_by_name(obj, "standard_rb");
     if (map_fd < 0) {
-        fprintf(stderr, "[ghost-agent] ERROR: ring buffer map not found\n");
+        fprintf(stderr, "[ghost-agent] ERROR: standard_rb not found\n");
         goto cleanup;
     }
+    rb_std = ring_buffer__new(map_fd, handle_event, NULL, NULL);
 
-    rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
-    if (!rb) {
+    /* Setup critical ring buffer */
+    map_fd = bpf_object__find_map_fd_by_name(obj, "critical_rb");
+    if (map_fd < 0) {
+        fprintf(stderr, "[ghost-agent] ERROR: critical_rb not found\n");
+        goto cleanup;
+    }
+    rb_crit = ring_buffer__new(map_fd, handle_event, NULL, NULL);
+
+    if (!rb_std || !rb_crit) {
         fprintf(stderr, "[ghost-agent] ERROR: ring buffer init failed\n");
         goto cleanup;
     }
 
-    fprintf(stderr, "[ghost-agent] Running — filtered stream active\n");
+    fprintf(stderr,
+            "[ghost-agent] Running — dual ring buffer active "
+            "(critical: 4MB never-drop, standard: 16MB)\n");
 
     while (running) {
-        err = ring_buffer__poll(rb, 100);
+        /* Poll critical ring first — higher priority */
+        err = ring_buffer__poll(rb_crit, 10);
         if (err == -EINTR) break;
-        if (err < 0) {
+
+        /* Then standard ring */
+        err = ring_buffer__poll(rb_std, 90);
+        if (err == -EINTR) break;
+
+        if (err < 0 && err != -EINTR) {
             fprintf(stderr, "[ghost-agent] ERROR: poll error %d\n", err);
             break;
         }
     }
 
 cleanup:
-    ring_buffer__free(rb);
+    ring_buffer__free(rb_std);
+    ring_buffer__free(rb_crit);
     bpf_object__close(obj);
     fprintf(stderr, "[ghost-agent] Stopped.\n");
     return 0;
