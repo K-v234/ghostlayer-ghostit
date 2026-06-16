@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package ghost;
+
+
+// Ghost IT Agent → Pipeline Server communication
+// All connections: mTLS required
+
+service GhostPipeline {
+  // Stream events from agent to pipeline
+  rpc IngestEvents (stream EventBatch) returns (IngestResponse);
+
+  // Health check
+  rpc HealthCheck (HealthRequest) returns (HealthResponse);
+}
+
+message Event {
+  uint64 ts           = 1;
+  uint32 pid          = 2;
+  uint32 tgid         = 3;
+  uint64 parent_pid   = 4;
+  uint32 uid          = 5;
+  uint32 gid          = 6;
+  string comm         = 7;
+  string event_type   = 8;
+  uint32 priority     = 9;
+  uint32 flags        = 10;
+  string path         = 11;
+  float  score        = 12;
+  bool   alert        = 13;
+  repeated string reasons = 14;
+}
+
+message EventBatch {
+  string agent_id     = 1;
+  string agent_version = 2;
+  repeated Event events = 3;
+  uint64 batch_ts     = 4;
+}
+
+message IngestResponse {
+  bool   success      = 1;
+  uint32 events_received = 2;
+  string message      = 3;
+}
+
+message HealthRequest {
+  string agent_id     = 1;
+}
+
+message HealthResponse {
+  bool   healthy      = 1;
+  string server_version = 2;
+  uint64 server_ts    = 3;
+}
