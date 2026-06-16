@@ -63,6 +63,25 @@ class GhostIsolationForest:
         log.info(f"Isolation Forest trained on {len(X)} samples")
         self._save()
 
+    def score_onnx(self, feature_vector: dict[str, float]) -> float:
+        """Score via ONNX runtime if available — faster, signed model."""
+        try:
+            import sys
+            sys.path.insert(0, '/home/keerthivahanan/ghostlayer')
+            from inference.runtime import GhostONNXRuntime
+            if not hasattr(self, '_onnx_runtime'):
+                self._onnx_runtime = GhostONNXRuntime("isolation_forest")
+            vec = [feature_vector.get(f, 0.0) for f in __import__(
+                'detection.behavioral.features',
+                fromlist=['BEHAVIORAL_FEATURES']
+            ).BEHAVIORAL_FEATURES]
+            result = self._onnx_runtime.infer(vec)
+            if result["available"]:
+                return result["score"]
+        except Exception:
+            pass
+        return self.score(feature_vector)
+
     def score(self, feature_vector: dict[str, float]) -> float:
         """
         Score a feature vector.
