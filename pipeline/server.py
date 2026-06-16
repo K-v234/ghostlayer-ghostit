@@ -27,9 +27,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from detection.ransomware import RansomwareEMADetector
+from detection.behavioral import BehavioralAIEngine
 
-# Global ransomware detector (C15)
+# Global detectors
 _ransomware_detector = RansomwareEMADetector()
+_behavioral_engine   = BehavioralAIEngine()
 from processor.enricher import enrich_batch
 
 logging.basicConfig(
