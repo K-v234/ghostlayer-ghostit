@@ -1,0 +1,62 @@
+name: Ghost IT Model Pipeline
+
+on:
+  push:
+    tags:
+      - 'model-v*'
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly retrain every Sunday 2AM
+  workflow_dispatch:
+
+jobs:
+  train-sign-deploy:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install scikit-learn onnx onnxruntime skl2onnx \
+            cryptography numpy
+
+      - name: Setup signing keys
+        env:
+          MODEL_SIGNING_KEY: ${{ secrets.MODEL_SIGNING_KEY }}
+          MODEL_SIGNING_PUB: ${{ secrets.MODEL_SIGNING_PUB }}
+        run: |
+          mkdir -p ~/ghostlayer/data/model_keys
+          echo "$MODEL_SIGNING_KEY" > ~/ghostlayer/data/model_keys/model_signing.key
+          echo "$MODEL_SIGNING_PUB" > ~/ghostlayer/data/model_keys/model_signing.pub
+          chmod 600 ~/ghostlayer/data/model_keys/model_signing.key
+
+      - name: Train + export + sign model
+        run: |
+          python3 model_pipeline/train.py \
+            --output-dir ./models \
+            --model-name isolation_forest \
+            --verify
+
+      - name: Upload signed model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghostit-models
+          path: |
+            models/isolation_forest.onnx
+            models/isolation_forest.onnx.sig
+            models/training_metadata.json
+
+      - name: Create model release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            models/isolation_forest.onnx
+            models/isolation_forest.onnx.sig
+            models/training_metadata.json
