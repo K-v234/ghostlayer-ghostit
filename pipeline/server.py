@@ -83,6 +83,16 @@ def init_db(db_path: str):
     DB_CONN.execute("CREATE SEQUENCE IF NOT EXISTS event_id_seq START 1")
     log.info(f"DB ready: {db_path}")
 
+    # 90-day retention cleanup on startup (DPDP compliant)
+    try:
+        deleted = DB_CONN.execute(
+            "DELETE FROM events WHERE received_at < now() - INTERVAL '90 days'"
+        ).rowcount
+        if deleted:
+            log.info(f"Retention cleanup: deleted {deleted} events older than 90 days")
+    except Exception as ex:
+        log.warning(f"Retention cleanup error: {ex}")
+
 
 def insert_batch(events: list[dict]) -> int:
     if not events:

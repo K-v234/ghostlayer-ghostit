@@ -24,6 +24,7 @@ from .features    import FeatureWindow, BEHAVIORAL_FEATURES
 from .baseline    import EntityBaseline
 from .isolation_forest import GhostIsolationForest
 from .anchors     import AnchorChecker, InvariantViolation
+from .cade        import CADEDriftDetector, DriftType
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class BehavioralAIEngine:
         self._windows:   dict[str, FeatureWindow]   = {}
         self._baselines: dict[str, EntityBaseline]  = {}
         self._checkers:  dict[str, AnchorChecker]   = {}
+        self._cade:      dict[str, CADEDriftDetector] = {}
         self._lock       = threading.Lock()
 
         # Shared Isolation Forest (global model)
@@ -109,6 +111,10 @@ class BehavioralAIEngine:
                 )
                 self._baselines[entity_id] = EntityBaseline(entity_id)
                 self._checkers[entity_id]  = AnchorChecker(entity_id)
+                self._cade[entity_id]      = CADEDriftDetector(
+                    entity_id,
+                    feature_names=BEHAVIORAL_FEATURES,
+                )
 
             window   = self._windows[entity_id]
             baseline = self._baselines[entity_id]
@@ -155,6 +161,23 @@ class BehavioralAIEngine:
     ) -> Optional[BehavioralAlert]:
         """Compute features, score, and return alert if threshold crossed."""
         fv = window.compute()
+
+        # C2 CADE: check for adversarial drift
+        cade = self._cade.get(entity_id)
+        if cade:
+            drift = cade.add_window(fv)
+            if drift and drift.type == DriftType.ADVERSARIAL:
+                alert = BehavioralAlert(
+                    entity_id      = entity_id,
+                    score          = 1.0,
+                    severity       = "critical",
+                    feature_scores = {},
+                    top_features   = drift.drifting_features,
+                    source         = "cade",
+                    rationale      = drift.recommendation,
+                )
+                self._forward(alert)
+                return alert
 
         # Add to Isolation Forest training buffer
         self._iso_forest.add_sample(fv)

@@ -176,3 +176,26 @@ class EventStore:
     def close(self):
         self.conn.close()
         log.info("EventStore closed")
+
+
+def setup_retention_policy(conn):
+    """
+    90-day retention — DPDP compliant.
+    Called on startup and daily via scheduler.
+    """
+    conn.execute("""
+        CREATE OR REPLACE MACRO cleanup_old_events() AS TABLE
+        SELECT COUNT(*) FROM events
+        WHERE received_at < now() - INTERVAL '90 days'
+    """)
+
+
+def run_cleanup(conn) -> int:
+    """Delete events older than 90 days. Returns count deleted."""
+    result = conn.execute("""
+        DELETE FROM events
+        WHERE received_at < now() - INTERVAL '90 days'
+        RETURNING COUNT(*)
+    """)
+    deleted = result.fetchone()
+    return deleted[0] if deleted else 0

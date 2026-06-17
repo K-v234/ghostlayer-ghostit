@@ -1,5 +1,5 @@
 database:
   host: db.internal
-  password: Gh0stDB_5123d90bd3c023d5!prod
+  password: Gh0stDB_1e6da483d299a9c8!prod
 api:
-  secret: ghst_b72fbc27f56a6519163d3d0f0f1f43a089df65a4b1b58df0
+  secret: ghst_c60b80791129e9c2855c99da9ae02abd50d24ac357e14357
