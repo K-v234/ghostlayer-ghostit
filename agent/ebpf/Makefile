@@ -40,3 +40,9 @@ run: all
 
 clean:
 	rm -f vmlinux.h ghost_agent.bpf.o ghost_agent
+
+# Self-watch BPF program
+self_watch.bpf.o: src/self_watch.bpf.c src/ghost_agent.h vmlinux.h
+	@echo "[*] Compiling self-watch BPF program..."
+	$(CLANG) $(BPF_CFLAGS) -c src/self_watch.bpf.c -o $@
+	@echo "[+] self_watch.bpf.o ready"

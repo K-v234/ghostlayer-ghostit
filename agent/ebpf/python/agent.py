@@ -119,6 +119,18 @@ def main():
     stats = {"total": 0, "dropped": 0, "logged": 0, "alerted": 0}
     log.info("Ghost IT Agent v3 started")
 
+    # C6 Layer 3: Start binary hash watchdog
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(__file__))
+        from watchdog import start_watchdog_background
+        _watchdog = start_watchdog_background(
+            pipeline_host=args.host,
+            pipeline_port=args.port,
+        )
+    except Exception as _ex:
+        log.warning(f"Watchdog init failed: {_ex}")
+
     try:
         for line in sys.stdin:
             line = line.strip()
