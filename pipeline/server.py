@@ -9,6 +9,8 @@ Ports:
   8000 HTTP — query API for dashboard + detection engine
 """
 import time
+import hashlib
+import collections
 import sys
 import os
 import json
@@ -354,6 +356,84 @@ def get_chains():
         return {"chains": [], "error": str(e)}
 
 
+
+# ------------------------------------------------------------------ #
+# Heartbeat Listener (C6 Layer 4)                                    #
+# ------------------------------------------------------------------ #
+_hb_registry: dict = {}          # pubkey -> last_seen timestamp
+_hb_missed:   dict = {}          # pubkey -> missed count
+HB_TIMEOUT_SEC = 180             # 3 missed x 60s = alert
+
+def _handle_heartbeat(conn: socket.socket, addr: tuple):
+    try:
+        data = b""
+        while b"\n" not in data:
+            chunk = conn.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        line = data.split(b"\n")[0].strip()
+        if not line:
+            return
+        msg = json.loads(line)
+        payload_str = msg.get("payload", "")
+        sig_hex     = msg.get("sig", "")
+        payload     = json.loads(payload_str)
+        pubkey_hex  = payload.get("pubkey", "")
+        seq         = payload.get("seq", 0)
+        ts          = payload.get("ts", 0)
+        pid         = payload.get("pid", 0)
+        # Register / update last seen
+        _hb_registry[pubkey_hex] = time.time()
+        _hb_missed[pubkey_hex]   = 0
+        log.info(f"[HB] seq={seq} pid={pid} ts={ts} from {addr} — OK")
+    except Exception as ex:
+        log.warning(f"[HB] Bad heartbeat from {addr}: {ex}")
+    finally:
+        conn.close()
+
+def _heartbeat_watchdog():
+    """Check for missed heartbeats every 60s."""
+    while True:
+        time.sleep(60)
+        now = time.time()
+        for pubkey, last_seen in list(_hb_registry.items()):
+            elapsed = now - last_seen
+            if elapsed > HB_TIMEOUT_SEC:
+                missed = int(elapsed // 60)
+                _hb_missed[pubkey] = missed
+                log.critical(
+                    f"[HB] TAMPER ALERT — agent silent for {int(elapsed)}s "
+                    f"({missed} missed heartbeats) pubkey={pubkey[:16]}..."
+                )
+                # Inject tamper alert into pipeline
+                alert_event = [{
+                    "type": "heartbeat_miss",
+                    "score": 100,
+                    "alert": True,
+                    "pubkey": pubkey[:16],
+                    "missed": missed,
+                    "ts": int(now),
+                    "comm": "ghost-agent",
+                    "pid": 0,
+                }]
+                try:
+                    insert_batch(alert_event)
+                except Exception as e:
+                    log.error(f"[HB] Failed to insert tamper alert: {e}")
+
+def run_heartbeat_server(host: str, port: int):
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(8)
+    log.info(f"Heartbeat listener on {host}:{port} (C6 Layer 4)")
+    # Start watchdog thread
+    threading.Thread(target=_heartbeat_watchdog, daemon=True).start()
+    while True:
+        conn, addr = srv.accept()
+        threading.Thread(target=_handle_heartbeat, args=(conn, addr), daemon=True).start()
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tcp-host",  default="127.0.0.1")
@@ -372,6 +452,14 @@ def main():
         daemon=True,
     )
     tcp_thread.start()
+
+    # Heartbeat listener (C6 Layer 4)
+    hb_thread = threading.Thread(
+        target=run_heartbeat_server,
+        args=(args.tcp_host, 9001),
+        daemon=True,
+    )
+    hb_thread.start()
 
     # HTTP API in main thread
     log.info(f"HTTP API on {args.http_host}:{args.http_port}")

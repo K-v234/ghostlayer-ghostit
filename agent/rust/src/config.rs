@@ -20,6 +20,8 @@ pub struct AgentConfig {
     /// Maximum ms between flushes
     pub flush_interval_ms: u64,
 
+    /// Heartbeat port (C6 Layer 4)
+    pub pipeline_hb_port: u16,
     /// Log level
     pub log_level: String,
 }
@@ -46,6 +48,10 @@ impl AgentConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(5000),
+            pipeline_hb_port: std::env::var("GHOST_HB_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(9001),
             log_level: std::env::var("GHOST_LOG_LEVEL")
                 .unwrap_or_else(|_| "info".to_string()),
         })
