@@ -104,14 +104,84 @@ fn verify_binary_hash() {
     match std::fs::read(&binary_path) {
         Ok(bytes) => {
             use sha2::{Sha256, Digest};
-            let hash = Sha256::digest(&bytes);
+            let local_hash = hex_encode(&Sha256::digest(&bytes));
             info!(
                 binary = %binary_path.display(),
-                hash = %hex_encode(&hash),
-                "Binary integrity check passed (C6 Layer 3)"
+                hash = %local_hash,
+                "Binary SHA-256 computed (C6 Layer 3)"
             );
+            // Fetch expected hash from Rekor transparency log
+            fetch_rekor_hash(&local_hash);
         }
         Err(e) => error!("Cannot read binary for hash check: {}", e),
+    }
+}
+
+fn fetch_rekor_hash(local_hash: &str) {
+    // Rekor log index from cosign bundle
+    let log_index = std::env::var("GHOST_REKOR_LOG_INDEX")
+        .unwrap_or_else(|_| "1862233454".to_string());
+
+    let url = format!(
+        "https://rekor.sigstore.dev/api/v1/log/entries?logIndex={}",
+        log_index
+    );
+
+    // Use std blocking HTTP via curl subprocess (avoids async complexity in sync context)
+    match std::process::Command::new("curl")
+        .args(["-sf", "--max-time", "10", &url])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            let body = String::from_utf8_lossy(&out.stdout);
+            // Rekor returns base64-encoded body — hash is nested inside
+            // Search for hash value directly in raw JSON (it appears as a plain string)
+            let hash_needle = format!("\"value\":\"{}\"", local_hash);
+            let hash_needle2 = format!("\"hash\":\"{}\"", local_hash);
+            if body.contains(local_hash) || body.contains(&hash_needle) || body.contains(&hash_needle2) {
+                info!(
+                    log_index = %log_index,
+                    hash = %local_hash,
+                    "Rekor hash verification PASSED (C6 Layer 3)"
+                );
+            } else {
+                // Decode base64 body and search within
+                // Extract body field and check decoded content
+                if let Some(start) = body.find("\"body\":\"") {
+                    let b64_start = start + 8;
+                    if let Some(end) = body[b64_start..].find('"') {
+                        let b64 = &body[b64_start..b64_start+end];
+                        // base64 decode via python subprocess
+                        let decoded = std::process::Command::new("python3")
+                            .args(["-c", &format!(
+                                "import base64; print(base64.b64decode('{}').decode())", b64
+                            )])
+                            .output()
+                            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                            .unwrap_or_default();
+                        if decoded.contains(local_hash) {
+                            info!(
+                                log_index = %log_index,
+                                hash = %local_hash,
+                                "Rekor hash verification PASSED (C6 Layer 3)"
+                            );
+                            return;
+                        }
+                    }
+                }
+                warn!(
+                    log_index = %log_index,
+                    local_hash = %local_hash,
+                    "Rekor hash not matched — binary may not be registered or was updated"
+                );
+            }
+        }
+        Ok(_) => {
+            warn!("Rekor fetch returned error — offline or rate limited");
+        }
+        Err(e) => {
+            warn!("Cannot reach Rekor (C6 Layer 3): {} — continuing offline", e);
+        }
     }
 }
 

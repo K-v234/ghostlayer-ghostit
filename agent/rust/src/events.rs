@@ -111,10 +111,10 @@ pub struct RawGhostEvent {
     pub flags:        u16,   // 2
     pub comm:         [u8; 16], // 16
     pub path:         [u8; 64], // 64
-    pub _pad:         [u8; 16], // 16  → total = 128
+    pub _pad:         [u8; 12], // 12  → total = 128
 }
 
-const RAW_EVENT_SIZE: usize = mem::size_of::<RawGhostEvent>();
+const RAW_EVENT_SIZE: usize = 128; // kernel ghost_event is 128 bytes packed
 
 /// Normalized event for pipeline
 #[derive(Debug, Clone, Serialize)]
