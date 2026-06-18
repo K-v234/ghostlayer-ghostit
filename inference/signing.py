@@ -19,6 +19,14 @@ from cryptography.exceptions import InvalidSignature
 
 log = logging.getLogger(__name__)
 
+# Hybrid signing (Ed25519 + ML-DSA-65)
+try:
+    from inference.hybrid_signing import sign_file as hybrid_sign_file, verify_file as hybrid_verify_file
+    HYBRID_AVAILABLE = True
+except ImportError:
+    HYBRID_AVAILABLE = False
+    log.warning("Hybrid signing not available — Ed25519 only")
+
 KEYS_DIR    = os.path.expanduser("~/ghostlayer/data/model_keys")
 SIGNING_KEY = os.path.join(KEYS_DIR, "model_signing.key")
 VERIFY_KEY  = os.path.join(KEYS_DIR, "model_signing.pub")
@@ -96,6 +104,13 @@ def sign_model(model_path: str) -> str:
         json.dump(bundle, f, indent=2)
 
     log.info(f"Model signed: {model_path} → {sig_path}")
+    # Hybrid: also sign with ML-DSA-65
+    if HYBRID_AVAILABLE:
+        try:
+            hybrid_sign_file(model_path)
+            log.info(f"Hybrid signed (Ed25519+ML-DSA-65): {model_path}")
+        except Exception as e:
+            log.warning(f"Hybrid signing failed: {e}")
     return sig_path
 
 
