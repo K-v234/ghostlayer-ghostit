@@ -478,3 +478,247 @@ int handle_listen(struct trace_event_raw_sys_enter *ctx)
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
+
+/* ================================================================== */
+/* PROCESS — fork, vfork                                              */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_fork")
+int handle_fork(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_FORK, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_vfork")
+int handle_vfork(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_VFORK, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+/* ================================================================== */
+/* FILE — read, write                                                  */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_read")
+int handle_read(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+
+    /* Only track reads on interesting fds — skip fd 0,1,2 */
+    int fd = (int)ctx->args[0];
+    if (fd <= 2) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_READ, PRIORITY_STANDARD);
+    e->flags = (__u16)fd;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_write")
+int handle_write(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+
+    int fd = (int)ctx->args[0];
+    if (fd <= 2) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_WRITE, PRIORITY_STANDARD);
+    e->flags = (__u16)fd;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+/* ================================================================== */
+/* NETWORK — sendto, recvfrom, sendmsg, recvmsg                      */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_sendto")
+int handle_sendto(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_SENDTO, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[0]; /* fd */
+
+    /* Read destination address if provided */
+    const void *addr = (const void *)ctx->args[4];
+    if (addr) {
+        struct sockaddr_in sa = {};
+        bpf_probe_read_user(&sa, sizeof(sa), addr);
+        e->path[0] = sa.sin_addr.s_addr & 0xFF;
+        e->path[1] = (sa.sin_addr.s_addr >> 8) & 0xFF;
+        e->path[2] = (sa.sin_addr.s_addr >> 16) & 0xFF;
+        e->path[3] = (sa.sin_addr.s_addr >> 24) & 0xFF;
+    }
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_recvfrom")
+int handle_recvfrom(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_RECVFROM, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[0]; /* fd */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_sendmsg")
+int handle_sendmsg(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_SENDMSG, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[0]; /* fd */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_recvmsg")
+int handle_recvmsg(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_RECVMSG, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[0]; /* fd */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+/* ================================================================== */
+/* AUTH — setreuid, setregid, setns (critical ring)                   */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_setreuid")
+int handle_setreuid(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) return 0;
+    fill_common(e, EVENT_SETREUID, PRIORITY_CRITICAL);
+    e->flags = (__u16)ctx->args[1]; /* effective UID */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_setregid")
+int handle_setregid(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) return 0;
+    fill_common(e, EVENT_SETREGID, PRIORITY_CRITICAL);
+    e->flags = (__u16)ctx->args[1]; /* effective GID */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_setns")
+int handle_setns(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) return 0;
+    fill_common(e, EVENT_SETNS, PRIORITY_CRITICAL);
+    e->flags = (__u16)ctx->args[1]; /* nstype */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+/* ================================================================== */
+/* CRYPTO — entropy reads (/dev/urandom watch)                        */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_openat")
+int handle_entropy_watch(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+
+    char path[16] = {};
+    bpf_probe_read_user_str(path, sizeof(path), (const void *)ctx->args[1]);
+
+    /* Only fire for /dev/urandom and /dev/random */
+    int is_urandom = (path[0]=='/' && path[1]=='d' && path[2]=='e' &&
+                      path[3]=='v' && path[4]=='/' && path[5]=='u');
+    int is_random  = (path[0]=='/' && path[1]=='d' && path[2]=='e' &&
+                      path[3]=='v' && path[4]=='/' && path[5]=='r');
+
+    if (!is_urandom && !is_random) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_ENTROPY_READ, PRIORITY_STANDARD);
+    bpf_probe_read_user_str(e->path, sizeof(e->path),
+                            (const void *)ctx->args[1]);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+/* ================================================================== */
+/* LSM HOOKS — capability + file open                                 */
+/* ================================================================== */
+
+SEC("lsm/capable")
+int BPF_PROG(ghost_cap_check, const struct cred *cred,
+             struct user_namespace *ns, int cap, unsigned int opts)
+{
+    if (should_drop()) return 0;
+
+    /* Only track sensitive capabilities */
+    if (cap != 0  &&  /* CAP_CHOWN */
+        cap != 1  &&  /* CAP_DAC_OVERRIDE */
+        cap != 6  &&  /* CAP_SETUID */
+        cap != 7  &&  /* CAP_SETGID */
+        cap != 21 &&  /* CAP_SYS_ADMIN */
+        cap != 22)    /* CAP_SYS_BOOT */
+        return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) return 0;
+    fill_common(e, EVENT_CAP_CHECK, PRIORITY_CRITICAL);
+    e->flags = (__u16)cap;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("lsm/file_open")
+int BPF_PROG(ghost_lsm_file_open, struct file *file)
+{
+    if (should_drop()) return 0;
+
+    /* Only track opens on sensitive paths */
+    struct dentry *dentry = BPF_CORE_READ(file, f_path.dentry);
+    struct dentry *parent = BPF_CORE_READ(dentry, d_parent);
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_LSM_OPEN, PRIORITY_STANDARD);
+
+    /* Read filename */
+    const unsigned char *name = BPF_CORE_READ(dentry, d_name.name);
+    if (name)
+        bpf_probe_read_kernel_str(e->path, sizeof(e->path), name);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}

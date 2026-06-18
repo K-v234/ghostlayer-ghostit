@@ -53,8 +53,21 @@ static const char *event_type_str(__u8 type)
         case EVENT_CHMOD:      return "chmod";
         case EVENT_CHOWN:      return "chown";
         case EVENT_EXIT:       return "exit";
-        case EVENT_PRCTL:      return "prctl";
-        default:               return "unknown";
+        case EVENT_PRCTL:        return "prctl";
+        case EVENT_FORK:         return "fork";
+        case EVENT_VFORK:        return "vfork";
+        case EVENT_READ:         return "read";
+        case EVENT_WRITE:        return "write";
+        case EVENT_SENDMSG:      return "sendmsg";
+        case EVENT_RECVFROM:     return "recvfrom";
+        case EVENT_RECVMSG:      return "recvmsg";
+        case EVENT_SETREUID:     return "setreuid";
+        case EVENT_SETREGID:     return "setregid";
+        case EVENT_SETNS:        return "setns";
+        case EVENT_ENTROPY_READ: return "entropy_read";
+        case EVENT_CAP_CHECK:    return "cap_check";
+        case EVENT_LSM_OPEN:     return "lsm_open";
+        default:                 return "unknown";
     }
 }
 

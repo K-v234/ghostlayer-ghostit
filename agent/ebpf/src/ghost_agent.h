@@ -11,36 +11,68 @@ typedef unsigned int       __u32;
 typedef unsigned long long __u64;
 
 enum event_type {
+    /* Standard ring — process */
     EVENT_EXEC       = 1,
     EVENT_OPEN       = 2,
     EVENT_CONNECT    = 3,
     EVENT_CLONE      = 4,
     EVENT_UNLINK     = 5,
+
+    /* Critical ring — privilege */
     EVENT_SETUID     = 6,
     EVENT_SETGID     = 7,
     EVENT_PTRACE     = 8,
     EVENT_CAPSET     = 9,
+
+    /* Critical ring — memory */
     EVENT_MMAP_EXEC  = 10,
     EVENT_MPROTECT   = 11,
+
+    /* Standard ring — network */
     EVENT_BIND       = 12,
     EVENT_LISTEN     = 13,
     EVENT_ACCEPT     = 14,
     EVENT_SENDTO     = 15,
+
+    /* Standard ring — file */
     EVENT_OPENAT2    = 16,
     EVENT_RENAME     = 17,
     EVENT_CHMOD      = 18,
     EVENT_CHOWN      = 19,
+
+    /* Standard ring — process */
     EVENT_EXIT       = 20,
     EVENT_PRCTL      = 21,
+
+    /* NEW — process */
+    EVENT_FORK       = 22,
+    EVENT_VFORK      = 23,
+
+    /* NEW — file */
+    EVENT_READ       = 24,
+    EVENT_WRITE      = 25,
+
+    /* NEW — network */
+    EVENT_SENDMSG    = 26,
+    EVENT_RECVFROM   = 27,
+    EVENT_RECVMSG    = 28,
+
+    /* NEW — auth (critical ring) */
+    EVENT_SETREUID   = 29,
+    EVENT_SETREGID   = 30,
+    EVENT_SETNS      = 31,
+
+    /* NEW — crypto (standard ring) */
+    EVENT_ENTROPY_READ = 32,
+
+    /* NEW — LSM hooks (critical ring) */
+    EVENT_CAP_CHECK  = 33,
+    EVENT_LSM_OPEN   = 34,
 };
 
 #define PRIORITY_STANDARD 0
 #define PRIORITY_CRITICAL 1
 
-/*
- * ghost_event — fixed size event struct
- * Layout: 8+4+4+4+4+8+1+1+2+16+64 = 116 bytes + 12 pad = 128
- */
 struct ghost_event {
     __u64 timestamp_ns;
     __u32 pid;
