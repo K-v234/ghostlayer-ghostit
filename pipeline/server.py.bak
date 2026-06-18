@@ -8,7 +8,6 @@ Ports:
   9000 TCP — receives events from eBPF agent
   8000 HTTP — query API for dashboard + detection engine
 """
-import time
 import sys
 import os
 import json
@@ -137,43 +136,16 @@ def df_to_json(df):
 # TCP Ingestion Server                                                #
 # ------------------------------------------------------------------ #
 def handle_client(conn: socket.socket, addr: tuple):
-    BATCH_SIZE = 1000
-    FLUSH_MS   = 0.100
     log.info(f"Agent connected: {addr}")
-    buf        = b""
-    pending    = []
-    stats      = {"batches": 0, "events": 0, "errors": 0}
-    last_flush = time.monotonic()
-    conn.settimeout(FLUSH_MS)
-
-    def flush():
-        if not pending:
-            return
-        try:
-            enriched = enrich_batch(pending[:])
-            n = insert_batch(enriched)
-            stats["batches"] += 1
-            stats["events"]  += n
-            alerts = sum(1 for e in enriched if e.get("alert"))
-            if alerts:
-                log.warning(f"[{addr}] {alerts} ALERT events in batch of {n}")
-            else:
-                log.debug(f"[{addr}] flushed {n} events")
-        except Exception as ex:
-            stats["errors"] += 1
-            log.error(f"[{addr}] Flush error: {ex}")
-        pending.clear()
+    buf = b""
+    stats = {"batches": 0, "events": 0, "errors": 0}
 
     try:
         while True:
-            try:
-                chunk = conn.recv(65536)
-                if not chunk:
-                    break
-                buf += chunk
-            except TimeoutError:
-                chunk = None
-
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 line = line.strip()
@@ -183,20 +155,21 @@ def handle_client(conn: socket.socket, addr: tuple):
                     batch = json.loads(line)
                     if not isinstance(batch, list):
                         batch = [batch]
-                    pending.extend(batch)
+                    enriched = enrich_batch(batch)
+                    n = insert_batch(enriched)
+                    stats["batches"] += 1
+                    stats["events"]  += n
+                    alerts = sum(1 for e in enriched if e.get("alert"))
+                    if alerts:
+                        log.warning(f"[{addr}] {alerts} ALERT events")
+                    else:
+                        log.debug(f"[{addr}] {n} events stored")
                 except Exception as ex:
                     stats["errors"] += 1
-                    log.error(f"[{addr}] Parse error: {ex}")
-
-            now = time.monotonic()
-            if len(pending) >= BATCH_SIZE or (now - last_flush) >= FLUSH_MS:
-                flush()
-                last_flush = time.monotonic()
-
+                    log.error(f"[{addr}] Bad batch: {ex}")
     except (ConnectionResetError, BrokenPipeError):
         pass
     finally:
-        flush()
         conn.close()
         log.info(f"Agent disconnected: {addr} | {stats}")
 
