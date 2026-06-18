@@ -722,3 +722,158 @@ int BPF_PROG(ghost_lsm_file_open, struct file *file)
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
+
+/* ================================================================== */
+/* NEW PROBES — fd, signal, network kprobes, LSM, perf               */
+/* ================================================================== */
+
+SEC("tp/syscalls/sys_enter_socket")
+int handle_socket(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_SOCKET, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[0]; /* domain */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_accept4")
+int handle_accept4(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_ACCEPT4, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_dup2")
+int handle_dup2(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_DUP2, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[1]; /* newfd */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_dup3")
+int handle_dup3(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_DUP3, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[1]; /* newfd */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_kill")
+int handle_kill(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_KILL, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[1]; /* signal */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_tgkill")
+int handle_tgkill(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_TGKILL, PRIORITY_STANDARD);
+    e->flags = (__u16)ctx->args[2]; /* signal */
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/tcp_connect")
+int BPF_KPROBE(handle_tcp_connect, struct sock *sk)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_TCP_CONNECT, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/inet_csk_accept")
+int BPF_KPROBE(handle_tcp_accept, struct sock *sk)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_TCP_ACCEPT, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/tcp_close")
+int BPF_KPROBE(handle_tcp_close, struct sock *sk)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_TCP_CLOSE, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/udp_sendmsg")
+int BPF_KPROBE(handle_udp_send, struct sock *sk)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_UDP_SEND, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("kprobe/udp_recvmsg")
+int BPF_KPROBE(handle_udp_recv, struct sock *sk)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_UDP_RECV, PRIORITY_STANDARD);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("lsm/inode_permission")
+int BPF_PROG(handle_inode_perm, struct inode *inode, int mask)
+{
+    if (should_drop()) return 0;
+    /* Only care about write/exec permission checks */
+    if (!(mask & 0x2) && !(mask & 0x1)) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_INODE_PERM, PRIORITY_STANDARD);
+    e->flags = (__u16)mask;
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("tp/syscalls/sys_enter_perf_event_open")
+int handle_perf_open(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) return 0;
+    fill_common(e, EVENT_PERF_OPEN, PRIORITY_CRITICAL);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}

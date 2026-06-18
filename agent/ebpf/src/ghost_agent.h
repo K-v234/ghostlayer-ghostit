@@ -68,6 +68,27 @@ enum event_type {
     /* NEW — LSM hooks (critical ring) */
     EVENT_CAP_CHECK  = 33,
     EVENT_LSM_OPEN   = 34,
+    /* NEW — fd/signal */
+    EVENT_SOCKET     = 35,
+    EVENT_ACCEPT4    = 36,
+    EVENT_DUP2       = 37,
+    EVENT_DUP3       = 38,
+    EVENT_KILL       = 39,
+    EVENT_TGKILL     = 40,
+
+    /* NEW — kprobe network */
+    EVENT_TCP_CONNECT = 41,
+    EVENT_TCP_ACCEPT  = 42,
+    EVENT_TCP_CLOSE   = 43,
+    EVENT_UDP_SEND    = 44,
+    EVENT_UDP_RECV    = 45,
+
+    /* NEW — LSM */
+    EVENT_INODE_PERM = 46,
+
+    /* NEW — perf abuse */
+    EVENT_PERF_OPEN  = 47,
+
 };
 
 #define PRIORITY_STANDARD 0
