@@ -24,6 +24,7 @@ from .features    import FeatureWindow, BEHAVIORAL_FEATURES
 from .baseline    import EntityBaseline
 from .isolation_forest import GhostIsolationForest
 from .anchors     import AnchorChecker, InvariantViolation
+from .cross_entity import cross_entity_auditor, psi_detector
 from .cade        import CADEDriftDetector, DriftType
 
 log = logging.getLogger(__name__)
@@ -94,6 +95,12 @@ class BehavioralAIEngine:
         self._iso_forest = GhostIsolationForest()
 
         log.info("C2 Behavioral AI Engine initialized")
+        # C2: Start cross-entity auditor (60s interval)
+        cross_entity_auditor.set_alert_callback(self._forward_dict)
+        cross_entity_auditor.run_periodic(interval_sec=60)
+        # C2: Start PSI drift detector (weekly = 604800s, use 3600s for V0 testing)
+        psi_detector.run_weekly(interval_sec=3600)
+        log.info("C2 cross-entity auditor + PSI drift detector started")
 
     def process_event(self, event: dict) -> Optional[BehavioralAlert]:
         """
@@ -192,6 +199,12 @@ class BehavioralAIEngine:
         else:
             final_score = combined_score
 
+        # C2: Cross-entity audit — record this entity's score
+        cross_entity_auditor.record(entity_id, final_score)
+
+        # C2: PSI drift — record feature vector sample
+        psi_detector.add_sample(fv)
+
         # Update baseline
         z_scores = baseline.update(fv)
 
@@ -219,6 +232,18 @@ class BehavioralAIEngine:
             source         = "ml",
             rationale      = f"Behavioral anomaly: {', '.join(top_features[:3])}",
         )
+
+    def _forward_dict(self, alert_dict: dict):
+        """Forward a plain dict alert to pipeline (used by cross-entity auditor)."""
+        payload = (json.dumps([alert_dict]) + "\n").encode()
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect((self.pipeline_host, self.pipeline_port))
+            s.sendall(payload)
+            s.close()
+        except OSError as ex:
+            log.error(f"Pipeline unavailable (cross-entity): {ex}")
 
     def _entity_id(self, event: dict) -> str:
         """Entity ID = comm:uid for now. Will be enriched in V1."""

@@ -21,6 +21,7 @@ from detection.mitre      import get_mitre_tag, KillChainStage
 from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
+from detection.behavioral.engine import BehavioralAIEngine
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,6 +107,12 @@ class DetectionEngine:
         self.max_id_at_start = events[0].get("id", 0) if events else 0
         self.chain_tracker = ChainTracker()
         log.info(f"Max event ID at startup: {self.max_id_at_start}")
+        # C2: Behavioral AI Engine
+        self._behavioral = BehavioralAIEngine(
+            pipeline_host="127.0.0.1",
+            pipeline_port=9000,
+        )
+        log.info("C2 BehavioralAIEngine wired in")
         return set()
 
     def _get_total(self) -> int:
@@ -142,6 +149,16 @@ class DetectionEngine:
                 d = check_event(e)
                 if d:
                     detections.append(d)
+                # C2: Behavioral AI
+                b = self._behavioral.process_event(e)
+                if b:
+                    detections.append(Detection(
+                        rule_id   = "B001",
+                        severity  = b.severity,
+                        score     = int(b.score * 100),
+                        event     = e,
+                        rationale = b.rationale,
+                    ))
 
             by_pid: dict[int, list] = {}
             for e in new_events:
