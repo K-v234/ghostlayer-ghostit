@@ -120,7 +120,7 @@ fn verify_binary_hash() {
 fn fetch_rekor_hash(local_hash: &str) {
     // Rekor log index from cosign bundle
     let log_index = std::env::var("GHOST_REKOR_LOG_INDEX")
-        .unwrap_or_else(|_| "1866772191".to_string());
+        .unwrap_or_else(|_| "1866997618".to_string());
 
     let url = format!(
         "https://rekor.sigstore.dev/api/v1/log/entries?logIndex={}",

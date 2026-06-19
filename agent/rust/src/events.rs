@@ -149,7 +149,7 @@ pub async fn run_event_loop(
     info!(path = %bpf_path, "Loading BPF object");
 
     // std channel: ring buffer thread -> async task
-    let (tx, rx) = mpsc::channel::<serde_json::Value>();
+    let (tx, rx) = mpsc::sync_channel::<serde_json::Value>(10000); // bounded — drop events if full
 
     // Spawn std thread for BPF polling (not async — avoids runtime conflict)
     let tx_clone = tx.clone();
@@ -187,7 +187,7 @@ pub async fn run_event_loop(
                         let raw = unsafe { &*(data.as_ptr() as *const RawGhostEvent) };
                         if let Some(event) = GhostEvent::from_raw(raw) {
                             if let Ok(json) = serde_json::to_value(&event) {
-                                let _ = t.send(json);
+                                let _ = t.try_send(json); // drop event if channel full — prevents memory explosion
                             }
                         }
                     }
@@ -237,6 +237,6 @@ pub async fn run_event_loop(
             }
         }
         // Yield to tokio runtime briefly
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
     }
 }
