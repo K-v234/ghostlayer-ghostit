@@ -853,8 +853,10 @@ int BPF_KPROBE(handle_udp_recv, struct sock *sk)
     return 0;
 }
 
-SEC("lsm/inode_permission")
-int BPF_PROG(handle_inode_perm, struct inode *inode, int mask)
+// DISABLED V0 — too noisy, re-enable in V1 with path filtering
+// SEC("lsm/inode_permission")
+__attribute__((unused))
+static int handle_inode_perm_disabled(struct inode *inode, int mask)
 {
     if (should_drop()) return 0;
     /* Only care about write/exec permission checks */
