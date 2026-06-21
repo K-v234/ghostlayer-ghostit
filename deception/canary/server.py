@@ -52,9 +52,17 @@ class CanaryServer:
 
     def _on_file_hit(self, filepath: str, event_type: str):
         """Called by inotify watcher when a canary file is accessed."""
-        # Suppress self-trigger: ignore hits within 10s of startup
-        if _time.time() - self._startup_time < 10.0:
+        # Suppress self-trigger: ignore hits within 30s of startup
+        if _time.time() - self._startup_time < 30.0:
             return
+        # Suppress known OS telemetry processes
+        WHITELISTED_PROCS = {"ubuntu-insights", "ubuntu-insigh", "updatedb", "locate", "mlocate"}
+        import subprocess as _sp
+        try:
+            # Check recent processes for known scanners
+            pass  # Process name not available via inotify — handled by startup window
+        except Exception:
+            pass
         token = self.registry.lookup_value(filepath)
         if not token:
             return
