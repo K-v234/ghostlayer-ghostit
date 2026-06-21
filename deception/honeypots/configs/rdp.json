@@ -1,0 +1,8 @@
+{
+  "type": "rdp",
+  "port": 3389,
+  "image": "scottyhardy/docker-wine:latest",
+  "description": "RDP server — Windows lateral movement target",
+  "args": [],
+  "kernel": "/opt/ghost/kernels/vmlinux-5.15"
+}

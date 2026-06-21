@@ -1,0 +1,8 @@
+{
+  "type": "smb",
+  "port": 445,
+  "image": "ghcr.io/impacket/smbserver:latest",
+  "description": "SMB/CIFS file server — most common Indian SME lateral movement target",
+  "args": ["-smb2support", "SHARE", "/tmp/honeypot-smb"],
+  "kernel": "/opt/ghost/kernels/vmlinux-5.15"
+}
