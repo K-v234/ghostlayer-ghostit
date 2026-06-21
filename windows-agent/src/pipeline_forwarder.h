@@ -1,13 +1,29 @@
 #pragma once
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "ghost_event.h"
+#include <string>
+#include <vector>
 
-bool pipeline_forwarder_init(const char *host,
-                             uint16_t port);
+class PipelineForwarder {
+public:
+    PipelineForwarder(
+        const std::string& host,
+        int port
+    );
 
-bool pipeline_send_batch(const ghost_event_t *events,
-                         uint32_t count);
+    bool connect();
 
-void pipeline_forwarder_shutdown(void);
+    bool send_event(
+        const std::string& json_event
+    );
+
+    bool send_batch(
+        const std::vector<std::string>& batch
+    );
+
+    void disconnect();
+
+private:
+    std::string host_;
+    int port_;
+    int socket_fd_;
+};
