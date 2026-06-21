@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-CANARY_DIR = os.path.join(os.path.dirname(__file__), "canary_files")
+CANARY_DIR = "/var/lib/ghostit/canary"
 
 
 class CanaryServer:
