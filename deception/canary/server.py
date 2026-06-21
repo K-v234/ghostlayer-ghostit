@@ -25,6 +25,8 @@ from tokens  import (TokenRegistry, generate_fake_aws_key,
                      generate_fake_aws_secret, generate_fake_db_password,
                      generate_fake_api_key, generate_fake_ssh_key)
 from alerts  import AlertForwarder, CanaryAlert
+from pid_whitelist import whitelist as _pid_whitelist
+import time as _time
 from watcher import FileCanaryWatcher
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -46,9 +48,13 @@ class CanaryServer:
         self.registry      = TokenRegistry()
         self.forwarder     = AlertForwarder(pipeline_host, pipeline_port)
         self.watcher       = FileCanaryWatcher(self._on_file_hit)
+        self._startup_time = _time.time()  # Suppress alerts for 10s after startup
 
     def _on_file_hit(self, filepath: str, event_type: str):
         """Called by inotify watcher when a canary file is accessed."""
+        # Suppress self-trigger: ignore hits within 10s of startup
+        if _time.time() - self._startup_time < 10.0:
+            return
         token = self.registry.lookup_value(filepath)
         if not token:
             return
