@@ -84,9 +84,13 @@ class PolymorphicTokenGenerator:
             return f"AKIA{suffix}"
 
         elif ctype == CredentialType.GITHUB_PAT:
-            # Real GitHub PAT: ghp_ + 36 base64 chars
-            encoded = base64.b64encode(bytes.fromhex(visible_id + nonce[:8])).decode()[:36]
-            return f"ghp_{encoded}"
+            # Real GitHub PAT: ghp_ + 36 alphanumeric chars (total 40)
+            raw = bytes.fromhex(visible_id) + bytes.fromhex(nonce[:16])
+            encoded = base64.b64encode(raw).decode()
+            # Remove non-alphanumeric chars, pad to exactly 36
+            clean = ''.join(c for c in encoded if c.isalnum())
+            padded = (clean + 'a' * 36)[:36]
+            return f"ghp_{padded}"
 
         elif ctype == CredentialType.SSH_PRIVATE_KEY:
             # Valid-looking RSA private key structure

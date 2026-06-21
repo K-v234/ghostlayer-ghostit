@@ -47,8 +47,8 @@ class TokenValidator:
         if len(token) != 40:
             return False
         suffix = token[4:]
-        # Must be valid base64 chars
-        if not re.match(r'^[A-Za-z0-9+/=]{36}$', suffix):
+        # Must be alphanumeric, exactly 36 chars
+        if not re.match(r'^[A-Za-z0-9]{36}$', suffix):
             return False
         log.debug(f"GitHub PAT valid: {token[:8]}...")
         return True
