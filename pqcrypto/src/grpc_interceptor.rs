@@ -1,7 +1,7 @@
 // STATUS: 100% — gRPC interceptor wrapping V0 channels with hybrid PQ KEM,
 //                transparent to existing gRPC code, <10ms overhead target
 // pqcrypto/src/grpc_interceptor.rs
-// GhostIT C11 — gRPC Post-Quantum Interceptor
+// GhostIT C11 -- gRPC Post-Quantum Interceptor
 // Wraps V0 existing gRPC/mTLS with hybrid KEM — zero protocol changes needed
 // Ghost Layer Technologies · Chennai · June 2026
 //
@@ -189,7 +189,7 @@ mod tests {
         let client = PqClientInterceptor::new(server_pk).unwrap();
 
         // Client encrypts a payload
-        let plaintext = b"GhostIT C11 — gRPC payload protected by hybrid PQ KEM";
+        let plaintext = b"GhostIT C11 -- gRPC payload protected by hybrid PQ KEM";
         let (ct_json, encrypted) = pq_encrypt_request(&client, plaintext).unwrap();
 
         // Server decrypts

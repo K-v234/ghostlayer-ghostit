@@ -31,7 +31,7 @@ pub struct MlKem768 {
 impl MlKem768 {
     /// Create a new ML-KEM-768 instance
     pub fn new() -> Result<Self, KemError> {
-        let kem = Kem::new(Algorithm::MlKem768)
+        let kem = Kem::new(Algorithm::Kyber768)
             .map_err(|e| KemError::Oqs(e.to_string()))?;
         Ok(Self { kem })
     }

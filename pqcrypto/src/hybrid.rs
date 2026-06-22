@@ -14,7 +14,6 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
-use rand::RngCore;
 use thiserror::Error;
 use serde::{Serialize, Deserialize};
 
@@ -245,7 +244,7 @@ mod tests {
         let (ct, ss) = kem.encapsulate(&kp.public_key).unwrap();
         let ss2 = kem.decapsulate(&kp.secret_key, &ct).unwrap();
 
-        let plaintext  = b"GhostIT C11 — harvest-now-decrypt-later defeated";
+        let plaintext  = b"GhostIT C11 -- harvest-now-decrypt-later defeated";
         let encrypted  = ss.encrypt(plaintext).unwrap();
         let decrypted  = ss2.decrypt(&encrypted).unwrap();
 
