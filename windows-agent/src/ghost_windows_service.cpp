@@ -21,6 +21,10 @@
 #include <chrono>
 #include <ctime>
 
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
 // ── Singleton ────────────────────────────────────────────────────────────────
 
 GhostWindowsService& GhostWindowsService::instance()
@@ -279,16 +283,19 @@ bool GhostWindowsService::initialize_components()
     divergence_ = std::make_unique<DivergenceDetector>(
         [this](const DivergenceAlert& alert) {
             // Serialize divergence alert and send to pipeline
-            std::ostringstream j;
-            j << "{\"type\":\"divergence_alert\","
-              << "\"level\":\""
-              << (alert.level == DivergenceAlertLevel::CRITICAL
-                  ? "CRITICAL" : "HIGH")
-              << "\","
-              << "\"pid\":"    << alert.pid << ","
-              << "\"reason\":\"" << alert.reason << "\","
-              << "\"missing\":\"" << alert.source_missing << "\"}";
-            pipeline_->send_event(j.str());
+       json j;
+
+       j["type"] = "divergence_alert";
+       j["level"] =
+           (alert.level == DivergenceAlertLevel::CRITICAL)
+              ? "CRITICAL"
+              : "HIGH";
+
+       j["pid"] = alert.pid;
+       j["reason"] = alert.reason;
+       j["missing"] = alert.source_missing;
+
+       pipeline_->send_event(j.dump());
         });
     divergence_->start();
 
