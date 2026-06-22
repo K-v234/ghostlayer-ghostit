@@ -98,13 +98,22 @@ class DetectionEngine:
         log.info(f"Engine ready — starting at offset {self.last_offset}")
 
     def _seed_seen_ids(self) -> set:
-        """Get max event ID at startup — only detect events with higher IDs."""
-        data = api_get(f"{self.api}/stats")
-        total = data.get("total", 0)
-        # Get current max ID by fetching one event
-        data2 = api_get(f"{self.api}/events?limit=1&offset=0&min_score=0")
-        events = data2.get("events", [])
-        self.max_id_at_start = events[0].get("id", 0) if events else 0
+        """Get max event ID at startup — only detect events with higher IDs.
+        Retries until pipeline is ready and returns events."""
+        import time as _time
+        for attempt in range(10):
+            data2 = api_get(f"{self.api}/events?limit=1&offset=0&min_score=0")
+            events = data2.get("events", [])
+            if events:
+                self.max_id_at_start = events[0].get("id", 0)
+                break
+            log.info(f"Pipeline not ready yet (attempt {attempt+1}/10) — retrying in 3s")
+            _time.sleep(3)
+        else:
+            # Pipeline has no events yet — set to 0 but skip first 30s of detections
+            self.max_id_at_start = 0
+            self._skip_until = _time.time() + 30
+            log.warning("Pipeline empty at startup — skipping detections for 30s")
         self.chain_tracker = ChainTracker()
         log.info(f"Max event ID at startup: {self.max_id_at_start}")
         # C2: Behavioral AI Engine
@@ -121,6 +130,10 @@ class DetectionEngine:
 
     def _fetch_new(self) -> list[dict]:
         """Fetch events newer than max_id_at_start."""
+        import time as _time
+        # Skip if within startup suppression window
+        if hasattr(self, "_skip_until") and _time.time() < self._skip_until:
+            return []
         data = api_get(f"{self.api}/events?limit=100&offset=0&min_score=0")
         all_events = data.get("events", [])
         new = [
