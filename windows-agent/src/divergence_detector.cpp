@@ -61,9 +61,9 @@ uint64_t DivergenceDetector::events_seen()    const { return events_seen_.load()
 
 void DivergenceDetector::process_event(const ghost_event_t& evt, bool from_ebpf)
 {
-    if (evt.type != GHOST_EVENT_PROCESS_EXEC &&
-        evt.type != GHOST_EVENT_NET_CONNECT  &&
-        evt.type != GHOST_EVENT_FILE_OPEN)
+    if (evt.event_type != GHOST_EVT_PROCESS_CREATE &&
+        evt.event_type != GHOST_EVT_NET_CONNECT  &&
+        evt.event_type != GHOST_EVT_FILE_OPEN)
         return;
 
     auto now = steady_clock::now();
@@ -81,10 +81,10 @@ void DivergenceDetector::process_event(const ghost_event_t& evt, bool from_ebpf)
             return;
         }
 
-        if (it->evt.pid == evt.pid && it->evt.type == evt.type) {
+        if (it->evt.pid == evt.pid && it->evt.event_type == evt.event_type) {
             std::ostringstream reason;
             reason << "eBPF/ETW content mismatch for PID " << evt.pid
-                   << " event type " << static_cast<int>(evt.type)
+                   << " event type " << static_cast<int>(evt.event_type)
                    << " — comm: eBPF='" << it->evt.comm
                    << "' ETW='"         << evt.comm << "'";
 
@@ -92,7 +92,7 @@ void DivergenceDetector::process_event(const ghost_event_t& evt, bool from_ebpf)
             pending_.erase(it);
 
             DivergenceAlert alert{};
-            alert.timestamp_ns   = evt.ts;
+            alert.timestamp_ns   = evt.timestamp_ns;
             alert.pid            = evt.pid;
             alert.level          = DivergenceAlertLevel::CRITICAL;
             alert.reason         = reason.str();
@@ -117,17 +117,17 @@ void DivergenceDetector::process_event(const ghost_event_t& evt, bool from_ebpf)
 bool DivergenceDetector::events_match(const ghost_event_t& a,
                                        const ghost_event_t& b) const
 {
-    if (a.type != b.type || a.pid != b.pid) return false;
+    if (a.event_type != b.event_type || a.pid != b.pid) return false;
 
-    if (a.type == GHOST_EVENT_PROCESS_EXEC)
+    if (a.event_type == GHOST_EVT_PROCESS_CREATE)
         if (strncmp(a.comm, b.comm, sizeof(a.comm)) != 0) return false;
 
-    if (a.type == GHOST_EVENT_NET_CONNECT) {
-        if (a.dport != b.dport || a.family != b.family) return false;
-        if (strncmp(a.daddr, b.daddr, sizeof(a.daddr)) != 0) return false;
+    if (a.event_type == GHOST_EVT_NET_CONNECT) {
+        if (a.dst_port != b.dst_port || a.uid != b.uid) return false;
+        if (strncmp(a.path, b.path, sizeof(a.path)) != 0) return false;
     }
 
-    if (a.type == GHOST_EVENT_FILE_OPEN)
+    if (a.event_type == GHOST_EVT_FILE_OPEN)
         if (strncmp(a.path, b.path, sizeof(a.path)) != 0) return false;
 
     return true;
@@ -141,7 +141,7 @@ void DivergenceDetector::fire_alert(const ghost_event_t& observed,
     if (!is_cooled_down(observed.pid)) return;
 
     DivergenceAlert alert{};
-    alert.timestamp_ns   = observed.ts;
+    alert.timestamp_ns   = observed.timestamp_ns;
     alert.pid            = observed.pid;
     alert.level          = DivergenceAlertLevel::HIGH;
     alert.reason         = reason;

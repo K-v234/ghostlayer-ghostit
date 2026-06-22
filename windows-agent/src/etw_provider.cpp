@@ -225,7 +225,7 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         parsed = parse_network_event(record, evt);
 
     if (parsed) {
-        evt.flags |= GHOST_FLAG_ETW_SOURCE;
+        evt.priority = GHOST_LAYER_ETW;
         ++events_captured_;
         if (on_event_) on_event_(evt);
     }
@@ -236,7 +236,7 @@ void EtwProvider::fill_common_fields(PEVENT_RECORD record, ghost_event_t& evt)
     ULARGE_INTEGER ft;
     ft.LowPart  = record->EventHeader.TimeStamp.LowPart;
     ft.HighPart = static_cast<ULONG>(record->EventHeader.TimeStamp.HighPart);
-    evt.ts  = (ft.QuadPart - 116444736000000000ULL) * 100;
+    evt.timestamp_ns  = (ft.QuadPart - 116444736000000000ULL) * 100;
     evt.pid = record->EventHeader.ProcessId;
     evt.tid = record->EventHeader.ThreadId;
 }
@@ -248,20 +248,20 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 
     switch (event_id) {
     case ETW_PROCESS_CREATE:
-        out.type = GHOST_EVENT_PROCESS_EXEC;
+        out.event_type = GHOST_EVT_PROCESS_CREATE;
         out.ppid = read_property_ulong(record, L"ParentProcessID");
         {
             std::string img  = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
             std::string args = wstr_to_utf8(read_property_wstr(record, L"CommandLine"));
-            strncpy_s(out.comm, sizeof(out.comm), img.c_str(),  _TRUNCATE);
-            strncpy_s(out.args, sizeof(out.args), args.c_str(), _TRUNCATE);
+            strncpy(out.comm, img.c_str(),  sizeof(out.comm) - 1);
+            strncpy(out.path, args.c_str(), sizeof(out.comm) - 1);
         }
         return true;
     case ETW_PROCESS_TERMINATE:
-        out.type = GHOST_EVENT_PROCESS_EXIT;
+        out.event_type = GHOST_EVT_PROCESS_EXIT;
         return true;
     case ETW_THREAD_CREATE:
-        out.type = GHOST_EVENT_THREAD_CREATE;
+        out.event_type = GHOST_EVT_THREAD_CREATE;
         return true;
     default:
         return false;
@@ -275,13 +275,13 @@ bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
         return false;
 
     fill_common_fields(record, out);
-    out.type   = GHOST_EVENT_NET_CONNECT;
-    out.dport  = static_cast<uint16_t>(read_property_ulong(record, L"dport"));
-    out.sport  = static_cast<uint16_t>(read_property_ulong(record, L"sport"));
-    out.family = static_cast<uint16_t>(read_property_ulong(record, L"AddressFamily"));
+    out.event_type = GHOST_EVT_NET_CONNECT;
+    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"dport"));
+    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"sport"));
+    out.uid = static_cast<uint16_t>(read_property_ulong(record, L"AddressFamily"));
 
     std::string da = wstr_to_utf8(read_property_wstr(record, L"daddr"));
-    strncpy_s(out.daddr, sizeof(out.daddr), da.c_str(), _TRUNCATE);
+    strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.comm) - 1);
     return true;
 }
 
@@ -292,20 +292,20 @@ bool EtwProvider::parse_ti_event(PEVENT_RECORD record, ghost_event_t& out)
 
     switch (event_id) {
     case ETW_TI_ALLOCEXEC:
-        out.type   = GHOST_EVENT_MEM_EXEC_ALLOC;
-        out.flags |= GHOST_FLAG_CRITICAL;
+        out.event_type = GHOST_EVT_MEMORY_EXEC;
+        out.priority = GHOST_PRI_CRITICAL;
         return true;
     case ETW_TI_MAPEXEC:
-        out.type   = GHOST_EVENT_MEM_EXEC_MAP;
-        out.flags |= GHOST_FLAG_CRITICAL;
+        out.event_type = GHOST_EVT_MEMORY_EXEC;
+        out.priority = GHOST_PRI_CRITICAL;
         return true;
     case ETW_TI_QUEUEAPC:
-        out.type   = GHOST_EVENT_APC_INJECT;
-        out.flags |= GHOST_FLAG_CRITICAL;
+        out.event_type = GHOST_EVT_THREAD_INJECT;
+        out.priority = GHOST_PRI_CRITICAL;
         return true;
     case ETW_TI_SETTHREADCTX:
-        out.type   = GHOST_EVENT_THREAD_CTX_SET;
-        out.flags |= GHOST_FLAG_CRITICAL;
+        out.event_type = GHOST_EVT_THREAD_INJECT;
+        out.priority = GHOST_PRI_CRITICAL;
         return true;
     default:
         return false;
@@ -315,17 +315,17 @@ bool EtwProvider::parse_ti_event(PEVENT_RECORD record, ghost_event_t& out)
 bool EtwProvider::parse_image_load(PEVENT_RECORD record, ghost_event_t& out)
 {
     fill_common_fields(record, out);
-    out.type = GHOST_EVENT_FILE_OPEN;
+    out.event_type = GHOST_EVT_FILE_OPEN;
 
     std::string s = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
-    strncpy_s(out.path, sizeof(out.path), s.c_str(), _TRUNCATE);
+    strncpy(out.path, s.c_str(), sizeof(out.comm) - 1);
 
     std::string lower = s;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     if (lower.find("\\temp\\")      != std::string::npos ||
         lower.find("\\appdata\\")   != std::string::npos ||
         lower.find("\\downloads\\") != std::string::npos)
-        out.flags |= GHOST_FLAG_CRITICAL;
+        out.priority = GHOST_PRI_CRITICAL;
 
     return true;
 }

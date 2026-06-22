@@ -6,9 +6,10 @@
 
 #include "pipeline_forwarder.h"
 
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#include <io.h>
 #include <errno.h>
 
 #include <iostream>
@@ -127,8 +128,8 @@ bool PipelineForwarder::tcp_connect()
     }
 
     struct timeval tv { .tv_sec = 5, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -136,7 +137,7 @@ bool PipelineForwarder::tcp_connect()
 
     if (inet_pton(AF_INET, host_.c_str(), &addr.sin_addr) <= 0) {
         std::cerr << "[GhostIT C9] inet_pton failed for host: " << host_ << "\n";
-        ::close(fd);
+        closesocket(fd);
         return false;
     }
 
@@ -144,7 +145,7 @@ bool PipelineForwarder::tcp_connect()
         std::cerr << "[GhostIT C9] connect() to "
                   << host_ << ":" << port_
                   << " failed: " << strerror(errno) << "\n";
-        ::close(fd);
+        closesocket(fd);
         return false;
     }
 
@@ -165,7 +166,7 @@ void PipelineForwarder::tcp_disconnect()
 {
     std::lock_guard<std::mutex> lk(socket_mutex_);
     if (socket_fd_ >= 0) {
-        ::close(socket_fd_);
+        closesocket(socket_fd_);
         socket_fd_ = -1;
     }
     connected_ = false;
@@ -194,11 +195,11 @@ bool PipelineForwarder::tcp_send(const std::string& data)
 
     size_t total_sent = 0;
     while (total_sent < data.size()) {
-        ssize_t sent = ::send(
+        int sent = ::send(
             socket_fd_,
             data.c_str() + total_sent,
             data.size()  - total_sent,
-            MSG_NOSIGNAL
+            0
         );
         if (sent <= 0) {
             std::cerr << "[GhostIT C9] tcp_send() error: " << strerror(errno) << "\n";
