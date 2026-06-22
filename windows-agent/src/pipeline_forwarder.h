@@ -1,3 +1,7 @@
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
 // STATUS: 100% — header complete
 // pipeline_forwarder.h
 // GhostIT C9 — Windows Agent → Ubuntu Pipeline Forwarder

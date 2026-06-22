@@ -94,7 +94,7 @@ target_link_libraries(GhostITAgent PRIVATE
 
 # ── Static linking — single .exe, no DLL dependencies on customer machine ─────
 set_target_properties(GhostITAgent PROPERTIES
-    LINK_FLAGS "-static -static-libgcc -static-libstdc++"
+    LINK_FLAGS "-static -static-libgcc -static-libstdc++ -mconsole"
 )
 
 # ── Output name and location ──────────────────────────────────────────────────

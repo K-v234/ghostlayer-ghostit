@@ -418,26 +418,26 @@ void GhostWindowsService::report_status(DWORD state,
 // ── main() ───────────────────────────────────────────────────────────────────
 // Entry point — dispatches to install/uninstall/service/interactive
 
-int wmain(int argc, wchar_t* argv[])
+int main(int argc, char* argv[])
 {
     if (argc > 1) {
-        std::wstring arg(argv[1]);
+        std::string arg(argv[1]);
 
-        if (arg == L"--install") {
+        if (arg == "--install") {
             return GhostWindowsService::install_service() ? 0 : 1;
         }
-        if (arg == L"--uninstall") {
+        if (arg == "--uninstall") {
             return GhostWindowsService::uninstall_service() ? 0 : 1;
         }
-        if (arg == L"--interactive") {
+        if (arg == "--interactive") {
             return GhostWindowsService::instance().run_interactive() ? 0 : 1;
         }
 
-        std::wcerr << L"Usage: GhostITAgent.exe [--install|--uninstall|--interactive]\n"
-                   << L"  --install      Register as Windows service (run as admin)\n"
-                   << L"  --uninstall    Remove Windows service\n"
-                   << L"  --interactive  Run in terminal for debugging\n"
-                   << L"  (no args)      Run as service (called by SCM)\n";
+        std::cerr << "Usage: GhostITAgent.exe [--install|--uninstall|--interactive]\n"
+                   << "  --install      Register as Windows service (run as admin)\n"
+                   << "  --uninstall    Remove Windows service\n"
+                   << "  --interactive  Run in terminal for debugging\n"
+                   << "  (no args)      Run as service (called by SCM)\n";
         return 1;
     }
 

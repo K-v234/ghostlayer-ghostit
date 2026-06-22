@@ -10,6 +10,13 @@
 //   We load it dynamically so we don't need to link ntdll explicitly.
 
 #include "coverage_mode.h"
+#include <winternl.h>
+#ifndef NTSTATUS
+typedef LONG NTSTATUS;
+#endif
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
 
 #include <iostream>
 #include <sstream>

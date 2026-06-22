@@ -290,7 +290,7 @@ static bool ring_is_empty(const ghost_ring_t* ring)
 
 // ── Invariant classification ──────────────────────────────────────────────────
 // These 6 rules are HARDCODED — ML cannot override them.
-// Any match sets GHOST_FLAG_CRITICAL and GHOST_FLAG_EBPF_SOURCE.
+// Any match sets GHOST_PRI_CRITICAL and GHOST_LAYER_EBPF.
 
 static bool is_lolbin(const char* comm)
 {
@@ -364,11 +364,11 @@ static void classify_event(ghost_event_t* evt)
     const char* path = evt->path;
 
     // Always tag as eBPF source
-    evt->flags |= GHOST_FLAG_EBPF_SOURCE;
+    evt->flags |= GHOST_LAYER_EBPF;
 
     // ── Invariant 1: Suspicious path execution ────────────────────────────
     if (path_is_suspicious(path) || path_is_suspicious(comm)) {
-        evt->flags   |= GHOST_FLAG_CRITICAL;
+        evt->flags   |= GHOST_PRI_CRITICAL;
         evt->severity = GHOST_SEV_CRITICAL;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV1: execution from suspicious path: %s", path);
@@ -377,7 +377,7 @@ static void classify_event(ghost_event_t* evt)
 
     // ── Invariant 4: certutil download cradle ─────────────────────────────
     if (is_download_cradle(comm, args)) {
-        evt->flags   |= GHOST_FLAG_CRITICAL;
+        evt->flags   |= GHOST_PRI_CRITICAL;
         evt->severity = GHOST_SEV_CRITICAL;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV4: certutil download cradle detected");
@@ -386,7 +386,7 @@ static void classify_event(ghost_event_t* evt)
 
     // ── Invariant 5: mshta HTA attack ─────────────────────────────────────
     if (is_hta_attack(comm, args)) {
-        evt->flags   |= GHOST_FLAG_CRITICAL;
+        evt->flags   |= GHOST_PRI_CRITICAL;
         evt->severity = GHOST_SEV_CRITICAL;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV5: mshta HTA attack detected");
@@ -395,7 +395,7 @@ static void classify_event(ghost_event_t* evt)
 
     // ── Invariant 6: Squiblydoo ───────────────────────────────────────────
     if (is_squiblydoo(comm, args)) {
-        evt->flags   |= GHOST_FLAG_CRITICAL;
+        evt->flags   |= GHOST_PRI_CRITICAL;
         evt->severity = GHOST_SEV_CRITICAL;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV6: Squiblydoo (regsvr32 /i:http) detected");
@@ -405,7 +405,7 @@ static void classify_event(ghost_event_t* evt)
     // ── Invariant 2: Sterile parent ───────────────────────────────────────
     // Parent comm is stored in evt->parent_comm
     if (is_sterile_parent(evt->parent_comm)) {
-        evt->flags   |= GHOST_FLAG_CRITICAL;
+        evt->flags   |= GHOST_PRI_CRITICAL;
         evt->severity = GHOST_SEV_CRITICAL;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV2: sterile parent '%s' spawned child '%s'",
@@ -415,7 +415,7 @@ static void classify_event(ghost_event_t* evt)
 
     // ── Invariant 3: Known LOLBin ─────────────────────────────────────────
     if (is_lolbin(comm)) {
-        evt->flags   |= GHOST_FLAG_HIGH;
+        evt->flags   |= GHOST_PRI_HIGH;
         evt->severity = GHOST_SEV_HIGH;
         snprintf(evt->reason, sizeof(evt->reason),
                  "INV3: LOLBin execution: %s", comm);

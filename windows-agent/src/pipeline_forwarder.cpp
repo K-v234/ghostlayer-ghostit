@@ -6,9 +6,10 @@
 
 #include "pipeline_forwarder.h"
 
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#include <io.h>
 #include <errno.h>
 
 #include <iostream>
@@ -31,8 +32,17 @@ static std::string iso8601_now()
 
 static std::string make_heartbeat_json()
 {
-    return R"({"type":"heartbeat","agent":"windows-c9","ts":")" +
-           iso8601_now() + R"("})";
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    uint64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    uint64_t ts_ns = (ticks - 116444736000000000ULL) * 100ULL;
+    std::string s = "{";
+    s += "\"type\":\"heartbeat\",";
+    s += "\"agent\":\"windows-c9\",";
+    s += "\"ts\":";
+    s += std::to_string(ts_ns);
+    s += "}";
+    return s;
 }
 
 PipelineForwarder::PipelineForwarder(const std::string& host, int port)
@@ -44,6 +54,8 @@ PipelineForwarder::PipelineForwarder(const std::string& host, int port)
     , missed_hb_(0)
     , backoff_ms_(BACKOFF_BASE_MS)
 {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
 }
 
 PipelineForwarder::~PipelineForwarder()
@@ -122,13 +134,13 @@ bool PipelineForwarder::tcp_connect()
 
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
-        std::cerr << "[GhostIT C9] socket() failed: " << strerror(errno) << "\n";
+        std::cerr << "[GhostIT C9] socket() failed: " << std::to_string(WSAGetLastError()).c_str() << "\n";
         return false;
     }
 
     struct timeval tv { .tv_sec = 5, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -136,15 +148,15 @@ bool PipelineForwarder::tcp_connect()
 
     if (inet_pton(AF_INET, host_.c_str(), &addr.sin_addr) <= 0) {
         std::cerr << "[GhostIT C9] inet_pton failed for host: " << host_ << "\n";
-        ::close(fd);
+        closesocket(fd);
         return false;
     }
 
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         std::cerr << "[GhostIT C9] connect() to "
                   << host_ << ":" << port_
-                  << " failed: " << strerror(errno) << "\n";
-        ::close(fd);
+                  << " failed: " << std::to_string(WSAGetLastError()).c_str() << "\n";
+        closesocket(fd);
         return false;
     }
 
@@ -165,7 +177,7 @@ void PipelineForwarder::tcp_disconnect()
 {
     std::lock_guard<std::mutex> lk(socket_mutex_);
     if (socket_fd_ >= 0) {
-        ::close(socket_fd_);
+        closesocket(socket_fd_);
         socket_fd_ = -1;
     }
     connected_ = false;
@@ -194,14 +206,14 @@ bool PipelineForwarder::tcp_send(const std::string& data)
 
     size_t total_sent = 0;
     while (total_sent < data.size()) {
-        ssize_t sent = ::send(
+        int sent = ::send(
             socket_fd_,
             data.c_str() + total_sent,
             data.size()  - total_sent,
-            MSG_NOSIGNAL
+            0
         );
         if (sent <= 0) {
-            std::cerr << "[GhostIT C9] tcp_send() error: " << strerror(errno) << "\n";
+            std::cerr << "[GhostIT C9] tcp_send() error: " << std::to_string(WSAGetLastError()).c_str() << "\n";
             return false;
         }
         total_sent += static_cast<size_t>(sent);

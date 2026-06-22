@@ -1,56 +1,98 @@
-"""
-Ghost IT — C17: APT Correlation Window
-Per Dakshin's analysis — 15-minute window misses APT36.
-Recon at 9am + lateral movement at 2pm = same attack.
+# STATUS: 100% — 15-min fast window, 4-hour APT window, configurable per tactic,
+#                window selector, time-bucket helpers
+# alert-engine/apt_window.py
+# GhostIT C17 — APT-Pattern Correlation Window
+# CRITICAL FIX: APT36 attacks move slowly — recon at 9am, lateral movement at 2pm.
+# A 15-minute window misses these chains entirely. C17 supports two windows:
+#   FAST (15 min)  — ransomware, exploit, immediate threats
+#   APT  (4 hours) — nation-state slow attacks, recon chains
+# Ghost Layer Technologies · Chennai · June 2026
 
-Configurable windows per attack type.
-
-Ghost Layer Technologies — CONFIDENTIAL
-# STATUS: 100% — complete
-"""
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from mitre_mapper import MitreTag
 
-class AttackMode(str, Enum):
-    RANSOMWARE = "ransomware"
-    APT        = "apt"
-    DEFAULT    = "default"
 
-# Correlation windows per attack mode
-CORRELATION_WINDOWS = {
-    AttackMode.RANSOMWARE: timedelta(minutes=15),   # Fast attack
-    AttackMode.APT:        timedelta(hours=4),       # APT36 style
-    AttackMode.DEFAULT:    timedelta(minutes=15),    # Default
-}
+class WindowType(str, Enum):
+    FAST = "fast"
+    APT  = "apt"
 
-# MITRE tactics that indicate APT (slow, stealthy)
-APT_TACTICS = {
-    "TA0043",  # Reconnaissance
-    "TA0042",  # Resource Development
-    "TA0001",  # Initial Access
-    "TA0003",  # Persistence
-    "TA0005",  # Defense Evasion
-    "TA0006",  # Credential Access
-    "TA0007",  # Discovery
-    "TA0008",  # Lateral Movement
-    "TA0009",  # Collection
-    "TA0011",  # Command and Control
-}
 
-# MITRE tactics that indicate ransomware (fast)
-RANSOMWARE_TACTICS = {
-    "TA0040",  # Impact
-    "TA0010",  # Exfiltration
-}
+FAST_WINDOW  = timedelta(minutes=15)
+APT_WINDOW   = timedelta(hours=4)
 
-def detect_attack_mode(mitre_tactic: str) -> AttackMode:
-    """Detect attack mode from first alert's MITRE tactic."""
-    if mitre_tactic in RANSOMWARE_TACTICS:
-        return AttackMode.RANSOMWARE
-    if mitre_tactic in APT_TACTICS:
-        return AttackMode.APT
-    return AttackMode.DEFAULT
+APT_TACTIC_IDS: frozenset[str] = frozenset({
+    "TA0043", "TA0042", "TA0001", "TA0003", "TA0004",
+    "TA0005", "TA0006", "TA0007", "TA0008", "TA0009", "TA0010",
+})
 
-def get_window(mode: AttackMode) -> timedelta:
-    """Get correlation window for attack mode."""
-    return CORRELATION_WINDOWS.get(mode, CORRELATION_WINDOWS[AttackMode.DEFAULT])
+FAST_TACTIC_IDS: frozenset[str] = frozenset({
+    "TA0002", "TA0011", "TA0040",
+})
+
+
+@dataclass(frozen=True)
+class WindowConfig:
+    window_type: WindowType
+    duration:    timedelta
+    reason:      str
+
+    @property
+    def seconds(self) -> float:
+        return self.duration.total_seconds()
+
+    def contains(self, anchor: datetime, candidate: datetime) -> bool:
+        if candidate < anchor:
+            return False
+        return (candidate - anchor) <= self.duration
+
+
+FAST_CONFIG = WindowConfig(
+    window_type=WindowType.FAST,
+    duration=FAST_WINDOW,
+    reason="Fast attack pattern (ransomware / exploit / C2)"
+)
+
+APT_CONFIG = WindowConfig(
+    window_type=WindowType.APT,
+    duration=APT_WINDOW,
+    reason="APT slow-attack pattern (recon → lateral movement chain)"
+)
+
+
+def select_window(mitre_tag: MitreTag) -> WindowConfig:
+    tactic_id = mitre_tag.tactic_id
+    if tactic_id in FAST_TACTIC_IDS:
+        return FAST_CONFIG
+    if tactic_id in APT_TACTIC_IDS:
+        return APT_CONFIG
+    return APT_CONFIG
+
+
+def select_window_for_tactics(tactic_ids: list[str]) -> WindowConfig:
+    for tid in tactic_ids:
+        if tid in APT_TACTIC_IDS:
+            return APT_CONFIG
+    return FAST_CONFIG
+
+
+def now_utc() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
+def bucket_key(ts: datetime, window: WindowConfig) -> str:
+    if window.window_type == WindowType.APU�
+        hour_block = (ts.hour // 4) * 4
+        return ts.strftime(f"%Y-%m-%dT{hour_block:02d}")
+    else:
+        minute_block = (ts.minute // 15) * 15
+        return ts.strftime(f"%Y-%m-%dT%H:{minute_block:02d}")
+
+
+def is_within_window(anchor_ts: datetime, candidate_ts: datetime, window: WindowConfig) -> bool:
+    return window.contains(anchor_ts, candidate_ts)
+
+
+def window_expires_at(anchor_ts: datetime, window: WindowConfig) -> datetime:
+    return anchor_ts + window.duration
