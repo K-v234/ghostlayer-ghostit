@@ -57,7 +57,9 @@ std::string serialize_event(const ghost_event_t& evt) {
     j["integrity"]  = evt.integrity;
     j["layer"]      = evt.layer;
     j["comm"]       = std::string(evt.comm, strnlen(evt.comm, sizeof(evt.comm)));
-    j["path"]       = std::string(evt.path, strnlen(evt.path, sizeof(evt.path)));
+    // nlohmann auto-escapes backslashes in std::string
+    std::string path_str(evt.path, strnlen(evt.path, sizeof(evt.path)));
+    j["path"]       = path_str;
     j["agent"]      = "windows-c9";
     if (evt.dst_ip != 0)   j["daddr"]    = ip_to_str(evt.dst_ip);
     if (evt.dst_port != 0) j["dport"]    = evt.dst_port;

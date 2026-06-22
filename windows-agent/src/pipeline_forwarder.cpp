@@ -32,8 +32,17 @@ static std::string iso8601_now()
 
 static std::string make_heartbeat_json()
 {
-    return R"({"type":"heartbeat","agent":"windows-c9","ts":")" +
-           iso8601_now() + R"("})";
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    uint64_t ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    uint64_t ts_ns = (ticks - 116444736000000000ULL) * 100ULL;
+    std::string s = "{";
+    s += "\"type\":\"heartbeat\",";
+    s += "\"agent\":\"windows-c9\",";
+    s += "\"ts\":";
+    s += std::to_string(ts_ns);
+    s += "}";
+    return s;
 }
 
 PipelineForwarder::PipelineForwarder(const std::string& host, int port)
@@ -45,6 +54,8 @@ PipelineForwarder::PipelineForwarder(const std::string& host, int port)
     , missed_hb_(0)
     , backoff_ms_(BACKOFF_BASE_MS)
 {
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
 }
 
 PipelineForwarder::~PipelineForwarder()
@@ -123,7 +134,7 @@ bool PipelineForwarder::tcp_connect()
 
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
-        std::cerr << "[GhostIT C9] socket() failed: " << strerror(errno) << "\n";
+        std::cerr << "[GhostIT C9] socket() failed: " << std::to_string(WSAGetLastError()).c_str() << "\n";
         return false;
     }
 
@@ -144,7 +155,7 @@ bool PipelineForwarder::tcp_connect()
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         std::cerr << "[GhostIT C9] connect() to "
                   << host_ << ":" << port_
-                  << " failed: " << strerror(errno) << "\n";
+                  << " failed: " << std::to_string(WSAGetLastError()).c_str() << "\n";
         closesocket(fd);
         return false;
     }
@@ -202,7 +213,7 @@ bool PipelineForwarder::tcp_send(const std::string& data)
             0
         );
         if (sent <= 0) {
-            std::cerr << "[GhostIT C9] tcp_send() error: " << strerror(errno) << "\n";
+            std::cerr << "[GhostIT C9] tcp_send() error: " << std::to_string(WSAGetLastError()).c_str() << "\n";
             return false;
         }
         total_sent += static_cast<size_t>(sent);
