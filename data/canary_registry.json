@@ -59,8 +59,8 @@
     "value": "http:/api/v1/keys",
     "description": "fake API key listing endpoint",
     "created_at": "2026-06-23T11:11:03.980930+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 1,
+    "last_hit": "2026-06-23T12:10:10.447505+00:00"
   },
   "434c51d7d0377759": {
     "token_id": "434c51d7d0377759",
@@ -86,8 +86,8 @@
     "value": "http:/.env",
     "description": "fake .env via HTTP",
     "created_at": "2026-06-23T11:11:03.982997+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 1,
+    "last_hit": "2026-06-23T12:10:10.430617+00:00"
   },
   "a2043868e46b03b7": {
     "token_id": "a2043868e46b03b7",
@@ -104,8 +104,8 @@
     "value": "/var/lib/ghostit/canary/.env",
     "description": "fake .env file with credentials",
     "created_at": "2026-06-23T11:11:03.966990+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 2,
+    "last_hit": "2026-06-23T12:06:29.749410+00:00"
   },
   "67e85ad2fc81101e": {
     "token_id": "67e85ad2fc81101e",
@@ -113,8 +113,8 @@
     "value": "/var/lib/ghostit/canary/id_rsa",
     "description": "fake SSH private key",
     "created_at": "2026-06-23T11:11:03.974920+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 2,
+    "last_hit": "2026-06-23T12:05:27.502232+00:00"
   },
   "923d612157d88739": {
     "token_id": "923d612157d88739",
@@ -122,8 +122,8 @@
     "value": "/var/lib/ghostit/canary/passwords.txt",
     "description": "fake passwords list",
     "created_at": "2026-06-23T11:11:03.976673+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 2,
+    "last_hit": "2026-06-23T12:06:29.742514+00:00"
   },
   "128b44fb8c7bc0b7": {
     "token_id": "128b44fb8c7bc0b7",
@@ -140,7 +140,7 @@
     "value": "/var/lib/ghostit/canary/backup.sql",
     "description": "fake SQL backup",
     "created_at": "2026-06-23T11:11:03.979272+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "hit_count": 2,
+    "last_hit": "2026-06-23T12:06:29.753183+00:00"
   }
 }
