@@ -3,6 +3,7 @@ import "./App.css";
 
 const API = "http://127.0.0.1:8001/api";
 const WS  = "ws://127.0.0.1:8001/ws/alerts";
+const BASE = "http://127.0.0.1:8001/app";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 function Login({ onLogin }) {

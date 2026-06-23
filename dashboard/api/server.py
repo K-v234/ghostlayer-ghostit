@@ -134,17 +134,15 @@ def get_incidents(limit: int = 50, session=Depends(_verify_session)):
 # ── Endpoint status ───────────────────────────────────────────────────────────
 @app.get("/api/endpoints")
 def get_endpoints(session=Depends(_verify_session)):
+    import urllib.request
     try:
-        with _events_conn() as con:
-            rows = con.execute("""
-                SELECT comm, pid, MAX(ts) as last_seen, COUNT(*) as event_count
-                FROM events
-                WHERE ts > (epoch_ns(now()) - 300000000000)
-                GROUP BY comm, pid
-                ORDER BY last_seen DESC LIMIT 50
-            """).fetchall()
-        endpoints = [{"comm": r[0], "pid": r[1],
-                      "last_seen": r[2], "event_count": r[3]} for r in rows]
+        with urllib.request.urlopen(f"{PIPELINE_API}/top?limit=50", timeout=5) as r:
+            data = json.loads(r.read())
+        procs = data.get("processes", [])
+        endpoints = [{"comm": p.get("comm"), "pid": 0,
+                      "event_count": p.get("total", 0),
+                      "last_seen": f"alerts:{p.get('alerts',0)} score:{p.get('max_score',0)}"
+                      } for p in procs]
         return {"total": len(endpoints), "endpoints": endpoints}
     except Exception as ex:
         return {"total": 0, "endpoints": [], "error": str(ex)}
