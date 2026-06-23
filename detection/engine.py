@@ -35,11 +35,18 @@ _SEV_MAP = {"critical": C17Severity.CRITICAL, "high": C17Severity.HIGH,
 
 def _to_c17_severity(s): return _SEV_MAP.get((s or "").lower(), C17Severity.MEDIUM)
 
+# C14 detectors
+import sys as _sys
+_sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "detectors"))
+from lolbin_detector import lolbin_detector
+from dns_analyzer    import DNSAnalyzer
+_dns_analyzer = DNSAnalyzer()
+
 def _detection_to_raw_alert(d, host):
     if d.rule_id == "B001":   source = AlertSource.BEHAVIORAL_AI
     elif d.rule_id.startswith("R"): source = AlertSource.C15_RANSOMWARE
     else:                     source = AlertSource.UNKNOWN
-    event = d.event or {}
+    event = (d.evidence[0] if d.evidence else {})
     comm = event.get("comm", "")
     if comm.startswith("detection:"): comm = comm[len("detection:"):]
     return RawAlert.create(source=source, severity=_to_c17_severity(d.severity),
@@ -188,15 +195,49 @@ class DetectionEngine:
                 d = check_event(e)
                 if d:
                     detections.append(d)
+
+                # C14: LOLBin check
+                try:
+                    lb = lolbin_detector.check_event(e)
+                    if lb:
+                        detections.append(Detection(
+                            rule_id     = "C14_LOLBIN",
+                            severity    = lb.severity,
+                            title       = f"LOLBin: {lb.pattern}",
+                            description = lb.reason,
+                            confidence  = 85,
+                            evidence    = [e],
+                        ))
+                except Exception as _ex:
+                    log.debug(f"C14 LOLBin error: {_ex}")
+
+                # C14: DNS analysis
+                try:
+                    domain = e.get("file", "") or e.get("daddr", "") or ""
+                    if domain and e.get("type") in ("network", "dns"):
+                        da = _dns_analyzer.analyze_query(domain)
+                        if da:
+                            detections.append(Detection(
+                                rule_id     = "C14_DNS",
+                                severity    = da.severity,
+                                title       = f"DNS: {da.indicator}",
+                                description = da.reason,
+                                confidence  = 80,
+                                evidence    = [e],
+                            ))
+                except Exception as _ex:
+                    log.debug(f"C14 DNS error: {_ex}")
+
                 # C2: Behavioral AI
                 b = self._behavioral.process_event(e)
                 if b:
                     detections.append(Detection(
-                        rule_id   = "B001",
-                        severity  = b.severity,
-                        score     = int(b.score * 100),
-                        event     = e,
-                        rationale = b.rationale,
+                        rule_id     = "B001",
+                        severity    = b.severity,
+                        title       = f"Behavioral anomaly: {b.rationale}",
+                        description = b.rationale,
+                        confidence  = int(b.score * 100),
+                        evidence    = [e],
                     ))
 
             by_pid: dict[int, list] = {}
