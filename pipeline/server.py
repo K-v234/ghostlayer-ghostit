@@ -311,6 +311,39 @@ def top_processes(limit: int = Query(10, ge=1, le=50)):
     return JSONResponse({"processes": df_to_json(rows)})
 
 
+@app.get("/timeline")
+def event_timeline(minutes: int = Query(60, ge=1, le=1440)):
+    """Event rate per minute for the last N minutes — for dashboard graphs."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT
+                strftime(received_at, '%Y-%m-%dT%H:%M:00') AS minute,
+                COUNT(*) AS events,
+                COUNT(*) FILTER (WHERE alert=true) AS alerts
+            FROM events
+            WHERE received_at > (current_timestamp - INTERVAL '{minutes}' MINUTE)
+            GROUP BY minute
+            ORDER BY minute ASC
+        """.format(minutes=int(minutes))).fetchdf()
+    return JSONResponse({"timeline": df_to_json(rows)})
+
+@app.get("/top/detailed")
+def top_processes_detailed(limit: int = Query(50, ge=1, le=200)):
+    """Top processes with PID, last seen, alert count."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT comm, pid,
+                   COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE alert=true) AS alerts,
+                   MAX(score) AS max_score,
+                   MAX(received_at) AS last_seen,
+                   COUNT(DISTINCT type) AS event_types
+            FROM events
+            GROUP BY comm, pid
+            ORDER BY total DESC LIMIT ?
+        """, [limit]).fetchdf()
+    return JSONResponse({"processes": df_to_json(rows)})
+
 @app.get("/events/pid/{pid}")
 def events_by_pid(pid: int):
     with DB_LOCK:

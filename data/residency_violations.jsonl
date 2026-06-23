@@ -1,0 +1,5 @@
+{"ts": "2026-06-23T10:48:22.400580+00:00", "pid": 9999, "comm": "python3", "foreign_ip": "185.220.101.45", "dport": 443, "event_type": "connect"}
+{"ts": "2026-06-23T10:51:27.249513+00:00", "pid": 9999, "comm": "python3", "foreign_ip": "185.220.101.45", "dport": 443, "event_type": "connect"}
+{"ts": "2026-06-23T11:01:04.947409+00:00", "pid": 1338, "comm": "payload", "foreign_ip": "185.220.101.45", "dport": 4444, "event_type": "connect"}
+{"ts": "2026-06-23T11:04:28.376281+00:00", "pid": 2002, "comm": "bash", "foreign_ip": "185.220.101.45", "dport": 4444, "event_type": "connect"}
+{"ts": "2026-06-23T11:04:28.382951+00:00", "pid": 2003, "comm": "bash", "foreign_ip": "185.220.101.45", "dport": 9999, "event_type": "connect"}

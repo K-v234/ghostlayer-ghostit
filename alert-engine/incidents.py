@@ -103,7 +103,7 @@ class IncidentStore:
 
     def save_incident(self, i: Incident):
         with self._conn() as con:
-            con.execute("""INSERT INTO incidents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            con.execute("""INSERT INTO incidents VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (incident_id) DO UPDATE SET updated_at=excluded.updated_at,
                 severity=excluded.severity,confidence=excluded.confidence,
                 alert_count=excluded.alert_count,alert_ids=excluded.alert_ids,

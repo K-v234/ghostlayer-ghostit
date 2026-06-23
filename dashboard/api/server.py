@@ -94,18 +94,11 @@ async def logout(session=Depends(_verify_session),
 # ── Alert endpoints ───────────────────────────────────────────────────────────
 @app.get("/api/alerts")
 def get_alerts(limit: int = 100, session=Depends(_verify_session)):
+    import urllib.request
     try:
-        with _events_conn() as con:
-            rows = con.execute("""
-                SELECT id, ts, pid, comm, type, score, reasons, file, daddr, dport, dpdp_pii_flag
-                FROM events WHERE alert=true
-                ORDER BY ts DESC LIMIT ?
-            """, [limit]).fetchall()
-        alerts = [{"id": r[0], "ts": r[1], "pid": r[2], "comm": r[3],
-                   "type": r[4], "score": r[5], "reasons": r[6],
-                   "file": r[7], "daddr": r[8], "dport": r[9],
-                   "dpdp_pii_flag": r[10]} for r in rows]
-        return {"total": len(alerts), "alerts": alerts}
+        with urllib.request.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=5) as r:
+            data = json.loads(r.read())
+        return {"total": data.get("total", 0), "alerts": data.get("alerts", [])}
     except Exception as ex:
         return {"total": 0, "alerts": [], "error": str(ex)}
 
@@ -120,12 +113,14 @@ def get_incidents(limit: int = 50, session=Depends(_verify_session)):
                        technique_name, alert_count, sources, summary, closed
                 FROM incidents ORDER BY updated_at DESC LIMIT ?
             """, [limit]).fetchall()
+        import json as _json
         incidents = [{"incident_id": r[0], "created_at": str(r[1]),
                       "updated_at": str(r[2]), "host": r[3],
                       "severity": r[4], "confidence": r[5],
                       "tactic_id": r[6], "tactic_name": r[7],
                       "technique_id": r[8], "technique_name": r[9],
-                      "alert_count": r[10], "sources": r[11],
+                      "alert_count": r[10],
+                      "sources": _json.loads(r[11]) if isinstance(r[11], str) else (r[11] or []),
                       "summary": r[12], "closed": r[13]} for r in rows]
         return {"total": len(incidents), "incidents": incidents}
     except Exception as ex:
@@ -136,12 +131,14 @@ def get_incidents(limit: int = 50, session=Depends(_verify_session)):
 def get_endpoints(session=Depends(_verify_session)):
     import urllib.request
     try:
-        with urllib.request.urlopen(f"{PIPELINE_API}/top?limit=50", timeout=5) as r:
+        with urllib.request.urlopen(f"{PIPELINE_API}/top/detailed?limit=50", timeout=5) as r:
             data = json.loads(r.read())
         procs = data.get("processes", [])
-        endpoints = [{"comm": p.get("comm"), "pid": 0,
+        endpoints = [{"comm": p.get("comm"), "pid": p.get("pid", 0),
                       "event_count": p.get("total", 0),
-                      "last_seen": f"alerts:{p.get('alerts',0)} score:{p.get('max_score',0)}"
+                      "alerts": p.get("alerts", 0),
+                      "max_score": p.get("max_score", 0),
+                      "last_seen": p.get("last_seen", "")
                       } for p in procs]
         return {"total": len(endpoints), "endpoints": endpoints}
     except Exception as ex:
@@ -157,7 +154,7 @@ def get_stats(session=Depends(_verify_session)):
     except Exception:
         pipeline_stats = {}
     try:
-        with _incident_conn() as con:
+        with duckdb.connect(INCIDENT_DB, read_only=True) as con:
             open_incidents = con.execute(
                 "SELECT COUNT(*) FROM incidents WHERE closed=FALSE").fetchone()[0]
             critical = con.execute(
