@@ -76,7 +76,8 @@ def init_db(db_path: str):
             daddr       VARCHAR,
             dport       USMALLINT,
             family      USMALLINT,
-            clone_flags UBIGINT
+            clone_flags UBIGINT,
+            dpdp_pii_flag BOOLEAN DEFAULT FALSE
         )
     """)
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_ts    ON events (ts DESC)")
@@ -84,6 +85,7 @@ def init_db(db_path: str):
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_pid   ON events (pid, ts DESC)")
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_comm  ON events (comm, ts DESC)")
     DB_CONN.execute("CREATE SEQUENCE IF NOT EXISTS event_id_seq START 1")
+
     log.info(f"DB ready: {db_path}")
 
     # 90-day retention cleanup on startup (DPDP compliant)
@@ -108,7 +110,7 @@ def insert_batch(events: list[dict]) -> int:
         e.get("reasons", []),
         e.get("file"), e.get("args"), e.get("flags"),
         e.get("daddr"), e.get("dport"), e.get("family"),
-        e.get("clone_flags"),
+        e.get("clone_flags"), bool(e.get("dpdp_pii_flag", False)),
     ) for e in events]
 
     with DB_LOCK:
@@ -116,10 +118,10 @@ def insert_batch(events: list[dict]) -> int:
             INSERT INTO events (
                 id, ts, pid, ppid, uid, gid, comm, type,
                 score, alert, reasons, file, args, flags,
-                daddr, dport, family, clone_flags
+                daddr, dport, family, clone_flags, dpdp_pii_flag
             ) VALUES (
                 nextval('event_id_seq'), ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, rows)
     return len(rows)
@@ -270,7 +272,7 @@ def list_events(
     with DB_LOCK:
         rows  = DB_CONN.execute(f"""
             SELECT id, ts, received_at, pid, ppid, uid, comm, type,
-                   score, alert, reasons, file, args, daddr, dport
+                   score, alert, reasons, file, args, daddr, dport, dpdp_pii_flag
             FROM events {where_sql}
             ORDER BY ts DESC LIMIT ? OFFSET ?
         """, params).fetchdf()

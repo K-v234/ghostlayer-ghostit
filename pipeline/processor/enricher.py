@@ -50,12 +50,36 @@ def _resolve_ip(ip: str) -> str | None:
         return None
 
 
+# C12 — DPDP compliance hooks
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.expanduser("~/ghostlayer"))
+try:
+    from compliance.pii_detector       import tag_event       as _tag_pii
+    from compliance.residency_enforcer import check_event     as _check_residency
+    _C12_READY = True
+except ImportError:
+    _C12_READY = False
+
 def enrich(event: dict) -> dict:
     """
     Add enrichment fields to a single event dict.
     Never mutates the original — returns a new dict.
     """
     e = dict(event)
+
+    # C12: PII detection + tagging
+    if _C12_READY:
+        try:
+            e = _tag_pii(e)
+        except Exception as _ex:
+            log.debug(f"C12 PII tag error: {_ex}")
+
+    # C12: Data residency check
+    if _C12_READY:
+        try:
+            _check_residency(e)
+        except Exception as _ex:
+            log.debug(f"C12 residency check error: {_ex}")
 
     # Wall clock timestamp
     e["wall_time"] = datetime.now(timezone.utc).isoformat()
