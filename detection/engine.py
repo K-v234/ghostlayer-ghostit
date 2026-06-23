@@ -23,6 +23,29 @@ from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
 from detection.behavioral.engine import BehavioralAIEngine
 
+# C17 — Alert Correlation Engine
+_alert_engine_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alert-engine")
+sys.path.insert(0, _alert_engine_path)
+from correlator import AlertCorrelator
+from incidents  import RawAlert
+from weights    import AlertSource, Severity as C17Severity
+
+_SEV_MAP = {"critical": C17Severity.CRITICAL, "high": C17Severity.HIGH,
+            "medium": C17Severity.MEDIUM, "low": C17Severity.LOW, "info": C17Severity.INFO}
+
+def _to_c17_severity(s): return _SEV_MAP.get((s or "").lower(), C17Severity.MEDIUM)
+
+def _detection_to_raw_alert(d, host):
+    if d.rule_id == "B001":   source = AlertSource.BEHAVIORAL_AI
+    elif d.rule_id.startswith("R"): source = AlertSource.C15_RANSOMWARE
+    else:                     source = AlertSource.UNKNOWN
+    event = d.event or {}
+    comm = event.get("comm", "")
+    if comm.startswith("detection:"): comm = comm[len("detection:"):]
+    return RawAlert.create(source=source, severity=_to_c17_severity(d.severity),
+        pid=event.get("pid", 0), host=host, comm=comm, reason=d.rule_id,
+        event_type=event.get("type", ""), raw_json=json.dumps(event))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [detection] %(levelname)s %(message)s",
@@ -95,6 +118,7 @@ class DetectionEngine:
         self.last_offset = 0
         self.seen_ids = self._seed_seen_ids()
         self.start_time  = time.time()
+        self.hostname    = socket.gethostname()
         log.info(f"Engine ready — starting at offset {self.last_offset}")
 
     def _seed_seen_ids(self) -> set:
@@ -122,6 +146,8 @@ class DetectionEngine:
             pipeline_port=9000,
         )
         log.info("C2 BehavioralAIEngine wired in")
+        self._correlator = AlertCorrelator()
+        log.info("C17 AlertCorrelator wired in")
         return set()
 
     def _get_total(self) -> int:
@@ -208,6 +234,13 @@ class DetectionEngine:
                     f"[{d.severity.upper()}] {d.rule_id} — {d.title} ({d.confidence}%){mitre_str}"
                 )
                 self.chain_tracker.process(d.rule_id, d.title, d.confidence)
+                try:
+                    raw = _detection_to_raw_alert(d, self.hostname)
+                    iid = self._correlator.ingest(raw)
+                    if iid:
+                        log.info(f"C17 incident {iid[:8]}… — {d.rule_id} correlated")
+                except Exception as ex:
+                    log.error(f"C17 ingest error: {ex}")
 
             active = self.chain_tracker.active_chains()
             if active:

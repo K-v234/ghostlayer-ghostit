@@ -1,3 +1,4 @@
+import os
 # STATUS: 100% — DuckDB incident storage, alert deduplication, incident CRUD,
 #                query by time range / severity / tactic, incident export to JSON
 # alert-engine/incidents.py
@@ -16,7 +17,7 @@ from weights import AlertSource, Severity, compute_confidence, combine_confidenc
 from mitre_mapper import MitreTag, map_alert
 from apt_window import WindowConfig, select_window, now_utc
 
-DB_PATH = "ghostit_incidents.duckdb"
+DB_PATH = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
 
 
 @dataclass
@@ -82,7 +83,7 @@ class IncidentStore:
         with self._conn() as con:
             con.execute("""CREATE TABLE IF NOT EXISTS incidents (
                 incident_id VARCHAR PRIMARY KEY,
-                created_at TIMESTAMPTX NOT NULL, updated_at TIMESTAMPTX NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL,
                 host VARCHAR NOT NULL DEFAULT '', severity VARCHAR NOT NULL,
                 confidence DOUBLE NOT NULL, window_type VARCHAR NOT NULL,
                 tactic_id VARCHAR NOT NULL, tactic_name VARCHAR NOT NULL,
@@ -152,7 +153,7 @@ class IncidentStore:
     @staticmethod
     def _row(r):
         return Incident(incident_id=r[0],created_at=r[1],updated_at=r[2],host=r[3],
-            severity=Severity(r[])),confidence=r[5],window_type=r[6],
+            severity=Severity(r[4]),confidence=r[5],window_type=r[6],
             tactic_id=r[7],tactic_name=r[8],technique_id=r[9],technique_name=r[10],
-            alert_count=r[11],alert_ids=json.loads(row[12]) if isinstance(r[12],str) else r[12],
+            alert_count=r[11],alert_ids=json.loads(r[12]) if isinstance(r[12],str) else r[12],
             sources=json.loads(r[13]) if isinstance(r[13],str) else r[13],summary=r[14],closed=r[15])

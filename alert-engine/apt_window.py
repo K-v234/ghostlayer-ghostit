@@ -82,7 +82,7 @@ def now_utc() -> datetime:
 
 
 def bucket_key(ts: datetime, window: WindowConfig) -> str:
-    if window.window_type == WindowType.APUº
+    if window.window_type == WindowType.APT:
         hour_block = (ts.hour // 4) * 4
         return ts.strftime(f"%Y-%m-%dT{hour_block:02d}")
     else:
