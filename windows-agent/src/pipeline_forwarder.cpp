@@ -45,9 +45,36 @@ static std::string make_heartbeat_json()
     return s;
 }
 
+// Read host/port from C:\ProgramData\GhostIT\ghost_config.ini
+// Falls back to compiled-in defaults if file missing or unparseable
+static std::pair<std::string,int> read_pipeline_config(
+    const std::string& default_host, int default_port)
+{
+    std::string host = default_host;
+    int         port = default_port;
+    std::ifstream f("C:\\ProgramData\\GhostIT\\ghost_config.ini");
+    if (!f.is_open()) return {host, port};
+    std::string line;
+    bool in_pipeline = false;
+    while (std::getline(f, line)) {
+        if (line == "[pipeline]") { in_pipeline = true; continue; }
+        if (!line.empty() && line[0] == '[') { in_pipeline = false; continue; }
+        if (!in_pipeline) continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+        if (key == "host" && !val.empty()) host = val;
+        if (key == "port" && !val.empty()) {
+            try { port = std::stoi(val); } catch (...) {}
+        }
+    }
+    return {host, port};
+}
+
 PipelineForwarder::PipelineForwarder(const std::string& host, int port)
-    : host_(host)
-    , port_(port)
+    : host_([&]{ return read_pipeline_config(host, port).first; }())
+    , port_([&]{ return read_pipeline_config(host, port).second; }())
     , socket_fd_(-1)
     , connected_(false)
     , running_(false)

@@ -5,7 +5,7 @@
 // STATUS: 100% — header complete
 // pipeline_forwarder.h
 // GhostIT C9 — Windows Agent → Ubuntu Pipeline Forwarder
-// Target: 192.168.88.131:9000
+// Target: 192.168.154.129:9000
 // Ghost Layer Technologies · Chennai · June 2026
 
 #pragma once
@@ -19,7 +19,11 @@
 #include <fstream>
 #include <functional>
 
-static constexpr const char* PIPELINE_HOST         = "192.168.88.131";
+// Config file: C:\ProgramData\GhostIT\ghost_config.ini
+// [pipeline]
+// host=192.168.154.129
+// port=9000
+static constexpr const char* PIPELINE_HOST         = "192.168.154.129";
 static constexpr int         PIPELINE_PORT          = 9000;
 static constexpr int         HEARTBEAT_INTERVAL_SEC = 30;
 static constexpr int         MAX_MISSED_HEARTBEATS  = 3;
