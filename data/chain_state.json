@@ -1,1 +1,1 @@
-{"chains": [], "highest_severity": "none"}
+{"chains": [{"chain_id": "f7349be6", "started_at": 1782146553.4255965, "duration_s": 0, "event_count": 1, "current_stage": "Discovery", "severity": "high", "escalating": false, "stages": ["Discovery"], "tactics": ["Discovery"], "techniques": ["T1056"]}], "highest_severity": "high"}
