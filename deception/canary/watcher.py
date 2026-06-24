@@ -18,7 +18,7 @@ IN_OPEN        = 0x00000020   # File opened
 IN_CLOSE_READ  = 0x00000008   # File closed after read
 IN_DELETE_SELF = 0x00000400   # Canary file deleted
 
-WATCH_FLAGS = IN_ACCESS | IN_OPEN | IN_CLOSE_READ | IN_DELETE_SELF
+WATCH_FLAGS = 0x00000002 | 0x00000008
 
 EVENT_STRUCT = "iIII"
 EVENT_SIZE   = struct.calcsize(EVENT_STRUCT)
@@ -67,6 +67,7 @@ class FileCanaryWatcher:
     def _read_events(self):
         import os
         buf = os.read(self._fd, 4096)
+        print("DEBUG: raw event buffer received")
         offset = 0
         while offset < len(buf):
             wd, mask, cookie, name_len = struct.unpack_from(EVENT_STRUCT, buf, offset)
@@ -75,24 +76,42 @@ class FileCanaryWatcher:
 
             if mask & IN_OPEN:
                 self.callback(filepath, "file_open")
-            elif mask & IN_ACCESS:
+            if mask & IN_ACCESS:
                 self.callback(filepath, "file_read")
-            elif mask & IN_CLOSE_READ:
+            if mask & 0x00000002:
+                self.callback(filepath, "file_modify")
+            if mask & 0x00000008:
+                self.callback(filepath, "file_close_write")
+            if mask & IN_CLOSE_READ:
                 self.callback(filepath, "file_close_read")
-            elif mask & IN_DELETE_SELF:
+            if mask & IN_DELETE_SELF:
                 self.callback(filepath, "file_deleted")
                 log.warning(f"Canary file DELETED: {filepath}")
 
     def start(self):
+        for f in [
+"/home/keerthivahanan/ghostlayer/deception/canary/canary_files/.env",
+"/home/keerthivahanan/ghostlayer/deception/canary/canary_files/id_rsa",
+"/home/keerthivahanan/ghostlayer/deception/canary/canary_files/passwords.txt",
+"/home/keerthivahanan/ghostlayer/deception/canary/canary_files/config.yml",
+"/home/keerthivahanan/ghostlayer/deception/canary/canary_files/backup.sql"]:
+            self.add_file(f)
         if not self.watches:
             log.warning("No canary files registered — watcher idle")
             return
+        if hasattr(self, "_thread") and self._thread.is_alive():
+            return
         self._running = True
-        t = threading.Thread(target=self._loop, daemon=True)
-        t.start()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
         log.info(f"File watcher started — watching {len(self.watches)} canaries")
 
     def _loop(self):
+        while self._running:
+            try:
+                self._read_events()
+            except Exception as ex:
+                log.error(f"Watcher error: {ex}")
         while self._running:
             try:
                 self._read_events()

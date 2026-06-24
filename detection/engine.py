@@ -23,36 +23,6 @@ from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
 from detection.behavioral.engine import BehavioralAIEngine
 
-# C17 — Alert Correlation Engine
-_alert_engine_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alert-engine")
-sys.path.insert(0, _alert_engine_path)
-from correlator import AlertCorrelator
-from incidents  import RawAlert
-from weights    import AlertSource, Severity as C17Severity
-
-_SEV_MAP = {"critical": C17Severity.CRITICAL, "high": C17Severity.HIGH,
-            "medium": C17Severity.MEDIUM, "low": C17Severity.LOW, "info": C17Severity.INFO}
-
-def _to_c17_severity(s): return _SEV_MAP.get((s or "").lower(), C17Severity.MEDIUM)
-
-# C14 detectors
-import sys as _sys
-_sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "detectors"))
-from lolbin_detector import lolbin_detector
-from dns_analyzer    import DNSAnalyzer
-_dns_analyzer = DNSAnalyzer()
-
-def _detection_to_raw_alert(d, host):
-    if d.rule_id == "B001":   source = AlertSource.BEHAVIORAL_AI
-    elif d.rule_id.startswith("R"): source = AlertSource.C15_RANSOMWARE
-    else:                     source = AlertSource.UNKNOWN
-    event = (d.evidence[0] if d.evidence else {})
-    comm = event.get("comm", "")
-    if comm.startswith("detection:"): comm = comm[len("detection:"):]
-    return RawAlert.create(source=source, severity=_to_c17_severity(d.severity),
-        pid=event.get("pid", 0), host=host, comm=comm, reason=d.rule_id,
-        event_type=event.get("type", ""), raw_json=json.dumps(event))
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [detection] %(levelname)s %(message)s",
@@ -87,9 +57,10 @@ def send_to_pipeline(detections: list, host: str, port: int):
                 f"technique:{tag.technique_id}",
                 f"kill_chain:{tag.kill_chain.label()}",
             ]
+        event = (d.evidence[0] if hasattr(d, "evidence") and d.evidence else {})
         events.append({
             "ts":      int(time.time_ns()),
-            "pid":     0, "ppid": 0, "uid": 0, "gid": 0,
+            "pid": event.get("pid", -1), "ppid": event.get("ppid", -1), "uid": event.get("uid", -1), "gid": event.get("gid", -1),
             "comm":    f"detection:{d.rule_id}",
             "type":    "detection",
             "score":   100,
@@ -125,7 +96,6 @@ class DetectionEngine:
         self.last_offset = 0
         self.seen_ids = self._seed_seen_ids()
         self.start_time  = time.time()
-        self.hostname    = socket.gethostname()
         log.info(f"Engine ready — starting at offset {self.last_offset}")
 
     def _seed_seen_ids(self) -> set:
@@ -153,8 +123,6 @@ class DetectionEngine:
             pipeline_port=9000,
         )
         log.info("C2 BehavioralAIEngine wired in")
-        self._correlator = AlertCorrelator()
-        log.info("C17 AlertCorrelator wired in")
         return set()
 
     def _get_total(self) -> int:
@@ -195,49 +163,15 @@ class DetectionEngine:
                 d = check_event(e)
                 if d:
                     detections.append(d)
-
-                # C14: LOLBin check
-                try:
-                    lb = lolbin_detector.check_event(e)
-                    if lb:
-                        detections.append(Detection(
-                            rule_id     = "C14_LOLBIN",
-                            severity    = lb.severity,
-                            title       = f"LOLBin: {lb.pattern}",
-                            description = lb.reason,
-                            confidence  = 85,
-                            evidence    = [e],
-                        ))
-                except Exception as _ex:
-                    log.debug(f"C14 LOLBin error: {_ex}")
-
-                # C14: DNS analysis
-                try:
-                    domain = e.get("file", "") or e.get("daddr", "") or ""
-                    if domain and e.get("type") in ("network", "dns"):
-                        da = _dns_analyzer.analyze_query(domain)
-                        if da:
-                            detections.append(Detection(
-                                rule_id     = "C14_DNS",
-                                severity    = da.severity,
-                                title       = f"DNS: {da.indicator}",
-                                description = da.reason,
-                                confidence  = 80,
-                                evidence    = [e],
-                            ))
-                except Exception as _ex:
-                    log.debug(f"C14 DNS error: {_ex}")
-
                 # C2: Behavioral AI
                 b = self._behavioral.process_event(e)
                 if b:
                     detections.append(Detection(
-                        rule_id     = "B001",
-                        severity    = b.severity,
-                        title       = f"Behavioral anomaly: {b.rationale}",
-                        description = b.rationale,
-                        confidence  = int(b.score * 100),
-                        evidence    = [e],
+                        rule_id   = "B001",
+                        severity  = b.severity,
+                        score     = int(b.score * 100),
+                        event     = e,
+                        rationale = b.rationale,
                     ))
 
             by_pid: dict[int, list] = {}
@@ -275,13 +209,6 @@ class DetectionEngine:
                     f"[{d.severity.upper()}] {d.rule_id} — {d.title} ({d.confidence}%){mitre_str}"
                 )
                 self.chain_tracker.process(d.rule_id, d.title, d.confidence)
-                try:
-                    raw = _detection_to_raw_alert(d, self.hostname)
-                    iid = self._correlator.ingest(raw)
-                    if iid:
-                        log.info(f"C17 incident {iid[:8]}… — {d.rule_id} correlated")
-                except Exception as ex:
-                    log.error(f"C17 ingest error: {ex}")
 
             active = self.chain_tracker.active_chains()
             if active:
