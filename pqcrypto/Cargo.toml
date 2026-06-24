@@ -32,6 +32,11 @@ thiserror = "1"
 # Hex encoding for key display
 hex = "0.4"
 
+[dependencies.pyo3]
+version = "0.21"
+features = ["extension-module"]
+
 [lib]
 name = "pqcrypto"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]

@@ -25,6 +25,11 @@ import hmac
 from typing import Optional
 
 import grpc
+try:
+    import pqcrypto as _pqcrypto
+    _PQ_AVAILABLE = True
+except ImportError:
+    _PQ_AVAILABLE = False
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey, X25519PublicKey
 )
@@ -63,25 +68,38 @@ class PQServerInterceptor(grpc.ServerInterceptor):
     """
 
     def __init__(self):
-        # Generate server X25519 keypair on startup
-        self._private_key = X25519PrivateKey.generate()
-        self._public_key  = self._private_key.public_key()
-        self._pubkey_bytes = self._public_key.public_bytes(
-            Encoding.Raw, PublicFormat.Raw
-        )
-        # Session cache: client_pubkey_hex → _Session
+        if _PQ_AVAILABLE:
+            # Full hybrid: ML-KEM-768 + X25519
+            self._pub_hex, self._priv_hex = _pqcrypto.generate_keypair()
+            self._pubkey_bytes = bytes.fromhex(self._pub_hex)
+            self._use_pq = True
+            log.info(f"C11 PQ interceptor ready — ML-KEM-768+X25519 hybrid pubkey: {self._pub_hex[:16]}…")
+        else:
+            # Fallback: X25519 only
+            self._private_key = X25519PrivateKey.generate()
+            self._public_key  = self._private_key.public_key()
+            self._pubkey_bytes = self._public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
+            self._use_pq = False
+            log.warning("C11 pqcrypto not available — X25519-only fallback")
+        # Session cache
         self._sessions: dict[str, _Session] = {}
-        log.info(f"C11 PQ interceptor ready — X25519 pubkey: {self._pubkey_bytes.hex()[:16]}…")
 
     def server_public_key_hex(self) -> str:
         return self._pubkey_bytes.hex()
 
     def _derive_session_key(self, client_pubkey_bytes: bytes) -> bytes:
-        """Perform X25519 ECDH and derive 32-byte AES key via HKDF-SHA256."""
-        client_pubkey = X25519PublicKey.from_public_bytes(client_pubkey_bytes)
-        shared_secret = self._private_key.exchange(client_pubkey)
-        hkdf = HKDF(algorithm=SHA256(), length=32, salt=None, info=HKDF_INFO)
-        return hkdf.derive(shared_secret)
+        """Derive session key using ML-KEM-768+X25519 hybrid or X25519 fallback."""
+        if self._use_pq:
+            # Full hybrid KEM — server decapsulates client's ciphertext
+            # client sends: pub_key(1216) for key agreement
+            # We encapsulate to client's public key
+            ct_hex, ss_hex = _pqcrypto.encapsulate(client_pubkey_bytes.hex())
+            return bytes.fromhex(ss_hex)
+        else:
+            client_pubkey = X25519PublicKey.from_public_bytes(client_pubkey_bytes)
+            shared_secret = self._private_key.exchange(client_pubkey)
+            hkdf = HKDF(algorithm=SHA256(), length=32, salt=None, info=HKDF_INFO)
+            return hkdf.derive(shared_secret)
 
     def _get_or_create_session(self, client_pubkey_bytes: bytes) -> _Session:
         key_hex = client_pubkey_bytes.hex()
