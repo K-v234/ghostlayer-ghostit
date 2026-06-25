@@ -175,13 +175,9 @@ function EventChart() {
 
 // ── Alert Feed ────────────────────────────────────────────────────────────────
 function AlertFeed({ token }) {
-  const [alerts, setAlerts] = useState([]);
+  const { data } = useAuthFetch(token, `${API}/alerts?limit=50`, 10000);
+  const alerts = data?.alerts || [];
   const [selected, setSelected] = useState(null);
-
-  useEffect(() => {
-    fetch(`${API}/alerts?limit=50`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(d => setAlerts(d.alerts || [])).catch(() => {});
-  }, [token]);
 
   if (selected) return (
     <div className="panel">
@@ -613,16 +609,16 @@ const TABS = [
 ];
 
 export default function App() {
-  const [token, setToken] = useState(sessionStorage.getItem("ghost_token") || "");
+  const [token, setToken] = useState(localStorage.getItem("ghost_token") || "");
   const [tab, setTab] = useState("overview");
   const pipelineStats = usePipeline("/stats", 15000);
   const { data: dashStats } = useAuthFetch(token, `${API}/stats`, 15000);
   const { data: incidentData } = useAuthFetch(token, `${API}/incidents?limit=100`, 20000);
 
-  const handleLogin = t => { setToken(t); sessionStorage.setItem("ghost_token", t); };
+  const handleLogin = t => { setToken(t); localStorage.setItem("ghost_token", t); };
   const handleLogout = () => {
     fetch(`${API}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-    setToken(""); sessionStorage.removeItem("ghost_token");
+    setToken(""); localStorage.removeItem("ghost_token");
   };
 
   if (!token) return <Login onLogin={handleLogin} />;

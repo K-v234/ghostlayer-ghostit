@@ -99,15 +99,17 @@ def get_alerts(limit: int = 100, session=Depends(_verify_session)):
         with urllib.request.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=5) as r:
             data = json.loads(r.read())
         import time as _t
-        cutoff_ns = (_t.time() - 3600) * 1e9  # last 1 hour only
+        # DuckDB now() returns IST-offset epoch (5.5h ahead of UTC unix time)
+        # Adjust cutoff accordingly
+        IST_OFFSET = 19800  # 5.5 hours in seconds
+        cutoff = int(_t.time()) + IST_OFFSET - 86400  # last 24 hours
         # Noise reasons to suppress
         NOISE = {"file_close_write","file_modify","file_close_read"}
         alerts = [a for a in data.get("alerts", [])
                   if a.get("comm","") not in ("ghost-agent","ghostit-agent-l","ghost-agent-lin")
                   and a.get("comm","") != ""
-                  and a.get("ts", 0) > cutoff_ns
-                  and not any(n in str(a.get("reasons","")) for n in NOISE)
-                  and a.get("daddr","") != "local_process"]
+                  and a.get("received_at", 0) > cutoff
+                  and not any(n in str(a.get("reasons","")) for n in NOISE)]
         return {"total": len(alerts), "alerts": alerts}
     except Exception as ex:
         return {"total": 0, "alerts": [], "error": str(ex)}
@@ -121,7 +123,9 @@ def get_incidents(limit: int = 50, session=Depends(_verify_session)):
                 SELECT incident_id, created_at, updated_at, host, severity,
                        confidence, tactic_id, tactic_name, technique_id,
                        technique_name, alert_count, sources, summary, closed
-                FROM incidents ORDER BY updated_at DESC LIMIT ?
+                FROM incidents
+                WHERE updated_at >= NOW() - INTERVAL 24 HOURS
+                ORDER BY updated_at DESC LIMIT ?
             """, [limit]).fetchall()
         import json as _json
         incidents = [{"incident_id": r[0], "created_at": str(r[1]),
