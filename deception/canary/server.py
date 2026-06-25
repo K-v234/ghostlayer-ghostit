@@ -50,7 +50,7 @@ class CanaryServer:
         self.watcher       = FileCanaryWatcher(self._on_file_hit)
         self._startup_time = _time.time()  # Suppress alerts for 10s after startup
 
-    def _on_file_hit(self, filepath: str, event_type: str):
+    def _on_file_hit(self, filepath: str, event_type: str, pid: int = 0, comm: str = 'unknown'):
         """Called by inotify watcher when a canary file is accessed."""
         # Suppress self-trigger: ignore hits within 30s of startup
         if _time.time() - self._startup_time < 30.0:
@@ -63,17 +63,25 @@ class CanaryServer:
             pass  # Process name not available via inotify — handled by startup window
         except Exception:
             pass
+        # Whitelist known safe processes
+        WHITELISTED_PROCS = {"ubuntu-insights", "ubuntu-insigh", "updatedb",
+                              "locate", "mlocate", "systemd", "snapd", "aide"}
+        if comm in WHITELISTED_PROCS:
+            return
+
         token = self.registry.lookup_value(filepath)
         if not token:
             return
         self.registry.record_hit(token.token_id)
+        hit_by = f"{comm}(PID={pid})" if pid and comm != "unknown" else "local_process"
+        log.warning(f"CANARY HIT [file] {token.description} | trigger={event_type} | by={hit_by}")
         self.forwarder.send(CanaryAlert(
             token_id    = token.token_id,
             token_type  = "file",
             description = token.description,
-            hit_by      = "local_process",
+            hit_by      = hit_by,
             hit_method  = event_type,
-            extra       = {"filepath": filepath},
+            extra       = {"filepath": filepath, "pid": pid, "comm": comm},
         ))
 
     def _on_http_hit(self, path: str, client_ip: str, headers: dict):
