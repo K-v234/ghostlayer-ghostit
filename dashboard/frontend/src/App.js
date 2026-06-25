@@ -191,10 +191,9 @@ function AlertFeed({ token }) {
       </div>
       <div className="alert-detail">
         <div className="detail-row"><span>Score</span><span className="detail-val" style={{color: "#ff3b3b"}}>{selected.score}</span></div>
-        <div className="detail-row"><span>Process</span><span className="detail-val">{selected.comm}</span></div>
-        <div className="detail-row"><span>PID</span><span className="detail-val">{selected.pid}</span></div>
+        <div className="detail-row"><span>Process</span><span className="detail-val">{selected.comm === "canary" && selected.daddr && selected.daddr !== "local_process" ? selected.daddr : selected.comm}</span></div>
         <div className="detail-row"><span>Type</span><span className="detail-val">{selected.type}</span></div>
-        <div className="detail-row"><span>Destination</span><span className="detail-val">{selected.daddr || "—"}</span></div>
+        <div className="detail-row"><span>Attacker</span><span className="detail-val" style={{color:"#ff3b3b"}}>{selected.daddr || "—"}</span></div>
         <div className="detail-row"><span>Port</span><span className="detail-val">{selected.dport || "—"}</span></div>
         <div className="detail-row"><span>File</span><span className="detail-val">{selected.file || "—"}</span></div>
         <div className="detail-row"><span>PII Flag</span><span className="detail-val">{selected.dpdp_pii_flag ? "⚠️ Yes" : "✅ No"}</span></div>
@@ -222,10 +221,13 @@ function AlertFeed({ token }) {
             <div key={a.id} className="alert-card" onClick={() => setSelected(a)}>
               <div className="alert-score" style={{color: a.score >= 80 ? "#ff3b3b" : "#ff8c00"}}>{a.score}</div>
               <div className="alert-info">
-                <div className="alert-comm">{a.comm} <span className="alert-pid">PID {a.pid}</span></div>
+                <div className="alert-comm">
+                  {a.comm === "canary" ? "🪤 Canary" : a.comm}
+                  {a.daddr && a.daddr !== "local_process" && a.daddr !== "" &&
+                    <span className="alert-pid"> · {a.daddr}</span>}
+                </div>
                 <div className="alert-reasons">{(a.reasons || []).slice(0,2).join(" · ")}</div>
               </div>
-              {a.daddr && <div className="alert-dst">→ {a.daddr}</div>}
               <div className="alert-arrow">›</div>
             </div>
           ))}

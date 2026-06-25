@@ -55,8 +55,9 @@ def tag_event(event: dict) -> dict:
     event = dict(event)
     event["dpdp_pii_flag"] = result.flagged
     if result.flagged:
-        # Strip sensitive content — data minimisation
-        event["file"] = "[REDACTED-PII]" if event.get("file") else event.get("file")
+        # Never redact canary events — they need file path for investigation
+        if event.get("type") not in ("canary_hit", "canary"):
+            event["file"] = "[REDACTED-PII]" if event.get("file") else event.get("file")
     return event
 
 # Singleton

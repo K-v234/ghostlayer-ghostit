@@ -98,7 +98,17 @@ def get_alerts(limit: int = 100, session=Depends(_verify_session)):
     try:
         with urllib.request.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=5) as r:
             data = json.loads(r.read())
-        return {"total": data.get("total", 0), "alerts": data.get("alerts", [])}
+        import time as _t
+        cutoff_ns = (_t.time() - 3600) * 1e9  # last 1 hour only
+        # Noise reasons to suppress
+        NOISE = {"file_close_write","file_modify","file_close_read"}
+        alerts = [a for a in data.get("alerts", [])
+                  if a.get("comm","") not in ("ghost-agent","ghostit-agent-l","ghost-agent-lin")
+                  and a.get("comm","") != ""
+                  and a.get("ts", 0) > cutoff_ns
+                  and not any(n in str(a.get("reasons","")) for n in NOISE)
+                  and a.get("daddr","") != "local_process"]
+        return {"total": len(alerts), "alerts": alerts}
     except Exception as ex:
         return {"total": 0, "alerts": [], "error": str(ex)}
 
@@ -223,7 +233,7 @@ async def websocket_alerts(websocket: WebSocket):
     try:
         while True:
             try:
-                with _ur.urlopen(f"{PIPELINE_API}/alerts?limit=50", timeout=3) as r:
+                with _ur.urlopen(f"{PIPELINE_API}/alerts?limit=20", timeout=3) as r:
                     data = json.loads(r.read())
                 alerts = data.get("alerts", [])
                 new_alerts = [a for a in alerts 
