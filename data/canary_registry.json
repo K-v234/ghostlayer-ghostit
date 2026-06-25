@@ -49,7 +49,7 @@
     "token_type": "http",
     "value": "http:/api/v1/admin",
     "description": "fake admin API endpoint",
-    "created_at": "2026-06-24T14:04:08.901064+00:00",
+    "created_at": "2026-06-25T03:35:19.733195+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -58,7 +58,7 @@
     "token_type": "http",
     "value": "http:/api/v1/keys",
     "description": "fake API key listing endpoint",
-    "created_at": "2026-06-24T14:04:08.901363+00:00",
+    "created_at": "2026-06-25T03:35:19.733759+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -67,7 +67,7 @@
     "token_type": "http",
     "value": "http:/internal/config",
     "description": "fake internal config endpoint",
-    "created_at": "2026-06-24T14:04:08.901964+00:00",
+    "created_at": "2026-06-25T03:35:19.734100+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -76,7 +76,7 @@
     "token_type": "http",
     "value": "http:/backup/dump",
     "description": "fake backup endpoint",
-    "created_at": "2026-06-24T14:04:08.903270+00:00",
+    "created_at": "2026-06-25T03:35:19.734404+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -85,7 +85,7 @@
     "token_type": "http",
     "value": "http:/.env",
     "description": "fake .env via HTTP",
-    "created_at": "2026-06-24T14:04:08.904028+00:00",
+    "created_at": "2026-06-25T03:35:19.735066+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -94,7 +94,7 @@
     "token_type": "http",
     "value": "http:/admin/credentials",
     "description": "fake credential endpoint",
-    "created_at": "2026-06-24T14:04:08.905076+00:00",
+    "created_at": "2026-06-25T03:35:19.735377+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -103,7 +103,7 @@
     "token_type": "file",
     "value": "/var/lib/ghostit/canary/.env",
     "description": "fake .env file with credentials",
-    "created_at": "2026-06-24T14:04:08.885215+00:00",
+    "created_at": "2026-06-25T03:35:19.728406+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -112,25 +112,25 @@
     "token_type": "file",
     "value": "/var/lib/ghostit/canary/id_rsa",
     "description": "fake SSH private key",
-    "created_at": "2026-06-24T14:04:08.894958+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "created_at": "2026-06-25T03:35:19.731049+00:00",
+    "hit_count": 18,
+    "last_hit": "2026-06-25T04:17:03.986282+00:00"
   },
   "923d612157d88739": {
     "token_id": "923d612157d88739",
     "token_type": "file",
     "value": "/var/lib/ghostit/canary/passwords.txt",
     "description": "fake passwords list",
-    "created_at": "2026-06-24T14:04:08.896853+00:00",
-    "hit_count": 0,
-    "last_hit": null
+    "created_at": "2026-06-25T03:35:19.731704+00:00",
+    "hit_count": 12,
+    "last_hit": "2026-06-25T04:20:52.937647+00:00"
   },
   "128b44fb8c7bc0b7": {
     "token_id": "128b44fb8c7bc0b7",
     "token_type": "file",
     "value": "/var/lib/ghostit/canary/config.yml",
     "description": "fake service config",
-    "created_at": "2026-06-24T14:04:08.897437+00:00",
+    "created_at": "2026-06-25T03:35:19.732215+00:00",
     "hit_count": 0,
     "last_hit": null
   },
@@ -139,7 +139,7 @@
     "token_type": "file",
     "value": "/var/lib/ghostit/canary/backup.sql",
     "description": "fake SQL backup",
-    "created_at": "2026-06-24T14:04:08.899337+00:00",
+    "created_at": "2026-06-25T03:35:19.732712+00:00",
     "hit_count": 0,
     "last_hit": null
   }

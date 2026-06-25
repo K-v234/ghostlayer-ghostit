@@ -1,1 +1,1 @@
-{"chains": [{"chain_id": "e791ba74", "started_at": 1782304495.8905022, "duration_s": 0, "event_count": 1, "current_stage": "Discovery", "severity": "high", "escalating": false, "stages": ["Discovery"], "tactics": ["Discovery"], "techniques": ["T1056"]}], "highest_severity": "high"}
+{"chains": [{"chain_id": "69c81bf9", "started_at": 1782361027.72883, "duration_s": 236, "event_count": 3, "current_stage": "Discovery", "severity": "high", "escalating": false, "stages": ["Discovery"], "tactics": ["Discovery"], "techniques": ["T1056"]}], "highest_severity": "high"}

@@ -201,6 +201,51 @@ async def grant_consent(request: Request, session=Depends(_verify_session)):
         purpose=body["purpose"])
     return r.to_dict()
 
+# ── Causal Intelligence — Claude API proxy ───────────────────────────────────
+@app.post("/api/causal/analyze")
+async def causal_analyze(request: Request, session=Depends(_verify_session)):
+    import urllib.request as _ur
+    body = await request.json()
+    chain = body.get("chain", {})
+
+    prompt = f"""You are a cybersecurity analyst for an Indian SME. Explain this attack chain clearly to a non-technical business owner.
+
+Attack Chain:
+- Severity: {chain.get('severity','unknown').upper()}
+- Stage: {chain.get('current_stage','unknown')}
+- Duration: {chain.get('duration_s',0)} seconds
+- Events: {chain.get('event_count',0)}
+- MITRE Tactics: {', '.join(chain.get('tactics',[]))}
+- MITRE Techniques: {', '.join(chain.get('techniques',[]))}
+- Escalating: {'YES - ACTIVE THREAT' if chain.get('escalating') else 'No'}
+
+Explain in 3 short paragraphs:
+1. What happened in simple terms
+2. What the attacker was trying to do
+3. What to do right now
+
+Under 150 words. Be direct and clear."""
+
+    try:
+        payload = json.dumps({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 1000,
+            "messages": [{"role": "user", "content": prompt}]
+        }).encode()
+        req = _ur.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with _ur.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read())
+        text_out = data.get("content", [{}])[0].get("text", "Analysis unavailable")
+        return {"analysis": text_out}
+    except Exception as ex:
+        log.error(f"Claude API error: {ex}")
+        return {"analysis": f"API error: {ex}"}
+
 # ── WebSocket — real-time alert feed ─────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
 const API = "http://127.0.0.1:8001/api";
@@ -476,6 +476,131 @@ function Compliance({ token }) {
   );
 }
 
+// ── Causal Intelligence ──────────────────────────────────────────────────────
+function CausalIntelligence({ token }) {
+  const [chains, setChains] = React.useState([]);
+  const [analysis, setAnalysis] = React.useState({});
+  const [loading, setLoading] = React.useState({});
+
+  React.useEffect(() => {
+    fetch("http://127.0.0.1:8000/chains")
+      .then(r => r.json())
+      .then(d => setChains(d.chains || []))
+      .catch(() => {});
+  }, []);
+
+  const analyze = async (chain) => {
+    setLoading(prev => ({...prev, [chain.chain_id]: true}));
+    try {
+      const prompt = `You are a cybersecurity analyst. Explain this attack chain in simple, clear language that a non-technical business owner (CTO/CEO) can understand. Be direct and actionable.
+
+Attack Chain Data:
+- Chain ID: ${chain.chain_id}
+- Severity: ${chain.severity.toUpperCase()}
+- Duration: ${chain.duration_s} seconds
+- Events detected: ${chain.event_count}
+- Attack stage: ${chain.current_stage}
+- MITRE tactics: ${chain.tactics.join(", ")}
+- MITRE techniques: ${chain.techniques.join(", ")}
+- Escalating: ${chain.escalating ? "YES - GROWING THREAT" : "No"}
+
+Explain in 3 short paragraphs:
+1. What happened (plain English, no jargon)
+2. What the attacker was trying to do
+3. What action to take right now
+
+Keep it under 150 words total. Be direct.`;
+
+      const response = await fetch(`${API}/causal/analyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ chain })
+      });
+      const data = await response.json();
+      const text = data.analysis || "Analysis unavailable";
+      setAnalysis(prev => ({...prev, [chain.chain_id]: text}));
+    } catch (e) {
+      setAnalysis(prev => ({...prev, [chain.chain_id]: "Analysis failed — check API connection"}));
+    }
+    setLoading(prev => ({...prev, [chain.chain_id]: false}));
+  };
+
+  const SEV_COLOR = {critical:"#ff3b3b", high:"#ff8c00", medium:"#ffd700", low:"#44cc44"};
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <h3>🧠 Causal Intelligence — Attack Chain Analysis</h3>
+        <span className="panel-meta">{chains.length} active chain(s)</span>
+      </div>
+      {chains.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">🧠</div>
+          <div className="empty-text">No Active Attack Chains</div>
+          <div className="empty-sub">System is clean — no ongoing attack sequences detected</div>
+        </div>
+      ) : chains.map(chain => (
+        <div key={chain.chain_id} style={{
+          background:"#070b14", border:`1px solid ${SEV_COLOR[chain.severity]}44`,
+          borderLeft:`3px solid ${SEV_COLOR[chain.severity]}`,
+          borderRadius:"8px", padding:"16px", marginBottom:"12px"
+        }}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px"}}>
+            <div>
+              <span style={{color:SEV_COLOR[chain.severity], fontWeight:"700", marginRight:"10px"}}>
+                {chain.severity.toUpperCase()}
+              </span>
+              <span style={{color:"#c8d4e8", fontSize:"0.85rem"}}>{chain.current_stage}</span>
+              <span style={{color:"#555", fontSize:"0.72rem", marginLeft:"10px"}}>
+                #{chain.chain_id.slice(0,8)} · {chain.event_count} events · {chain.duration_s}s
+              </span>
+            </div>
+            <div style={{display:"flex", gap:"8px", alignItems:"center"}}>
+              {chain.escalating && <span style={{color:"#ff3b3b", fontSize:"0.7rem", fontWeight:"700"}}>⚠ ESCALATING</span>}
+              <span style={{fontSize:"0.7rem", color:"#555"}}>{chain.tactics.join(" → ")}</span>
+            </div>
+          </div>
+          <div style={{display:"flex", gap:"8px", marginBottom:"12px", flexWrap:"wrap"}}>
+            {chain.techniques.map(t => (
+              <span key={t} style={{background:"#1e3a5f33", border:"1px solid #1e3a5f", color:"#4af",
+                padding:"2px 8px", borderRadius:"4px", fontSize:"0.68rem"}}>{t}</span>
+            ))}
+          </div>
+          {!analysis[chain.chain_id] ? (
+            <button onClick={() => analyze(chain)} disabled={loading[chain.chain_id]}
+              style={{background:"#1e3a5f", color:"#4af", border:"1px solid #4af33",
+                borderRadius:"4px", padding:"8px 16px", cursor:"pointer", fontSize:"0.75rem",
+                opacity: loading[chain.chain_id] ? 0.6 : 1}}>
+              {loading[chain.chain_id] ? "🧠 Analyzing..." : "🧠 Explain This Attack"}
+            </button>
+          ) : (
+            <div style={{background:"#0d1421", border:"1px solid #1e3a5f", borderRadius:"6px",
+              padding:"14px", fontSize:"0.8rem", color:"#c8d4e8", lineHeight:"1.7",
+              whiteSpace:"pre-wrap"}}>
+              {analysis[chain.chain_id]}
+              <div style={{marginTop:"10px", display:"flex", gap:"8px"}}>
+                <button onClick={() => analyze(chain)}
+                  style={{background:"transparent", color:"#555", border:"1px solid #1e3a5f",
+                    borderRadius:"4px", padding:"4px 10px", cursor:"pointer", fontSize:"0.65rem"}}>
+                  Re-analyze
+                </button>
+                <button onClick={() => setAnalysis(prev => ({...prev, [chain.chain_id]: null}))}
+                  style={{background:"transparent", color:"#555", border:"1px solid #1e3a5f",
+                    borderRadius:"4px", padding:"4px 10px", cursor:"pointer", fontSize:"0.65rem"}}>
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 const TABS = [
   { id: "overview", label: "Overview", icon: "🏠" },
@@ -484,6 +609,7 @@ const TABS = [
   { id: "endpoints",label: "Endpoints",icon: "🖥️" },
   { id: "mitre",    label: "MITRE",    icon: "🎯" },
   { id: "compliance",label: "DPDP",   icon: "🛡️" },
+  { id: "causal",    label: "Causal AI", icon: "🧠" },
 ];
 
 export default function App() {
@@ -548,6 +674,7 @@ export default function App() {
           {tab === "endpoints" && <EndpointGrid token={token}/>}
           {tab === "mitre"     && <MitreMap token={token}/>}
           {tab === "compliance"&& <Compliance token={token}/>}
+          {tab === "causal"     && <CausalIntelligence token={token}/>}
         </div>
       </main>
     </div>
