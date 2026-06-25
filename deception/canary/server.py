@@ -130,12 +130,16 @@ class CanaryServer:
 
         for filename, content, description in files:
             filepath = os.path.join(CANARY_DIR, filename)
-            with open(filepath, "w") as f:
-                f.write(content)
-            os.chmod(filepath, 0o644)
+            if not os.path.exists(filepath):
+                # Only write if file doesn't exist — preserves inode across restarts
+                with open(filepath, "w") as f:
+                    f.write(content)
+                os.chmod(filepath, 0o644)
+                log.info(f"Deployed file canary: {filepath}")
+            else:
+                log.info(f"Canary file exists (inode preserved): {filepath}")
             self.registry.register("file", filepath, description)
             self.watcher.add_file(filepath)
-            log.info(f"Deployed file canary: {filepath}")
 
     def _deploy_http_canaries(self):
         """Register fake HTTP endpoints."""
