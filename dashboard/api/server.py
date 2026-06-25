@@ -219,23 +219,20 @@ ws_manager = ConnectionManager()
 async def websocket_alerts(websocket: WebSocket):
     await ws_manager.connect(websocket)
     last_id = 0
+    import urllib.request as _ur
     try:
         while True:
             try:
-                with _events_conn() as con:
-                    rows = con.execute("""
-                        SELECT id, ts, pid, comm, type, score, reasons, daddr
-                        FROM events WHERE alert=true AND id > ?
-                        ORDER BY ts DESC LIMIT 20
-                    """, [last_id]).fetchall()
-                if rows:
-                    last_id = max(r[0] for r in rows)
-                    for r in rows:
-                        await websocket.send_json({
-                            "id": r[0], "ts": r[1], "pid": r[2],
-                            "comm": r[3], "type": r[4], "score": r[5],
-                            "reasons": r[6], "daddr": r[7],
-                        })
+                with _ur.urlopen(f"{PIPELINE_API}/alerts?limit=50", timeout=3) as r:
+                    data = json.loads(r.read())
+                alerts = data.get("alerts", [])
+                new_alerts = [a for a in alerts 
+                    if a.get("id", 0) > last_id 
+                    and a.get("comm", "") not in ("ghost-agent", "ghostit-agent-l", "")]
+                if new_alerts:
+                    last_id = max(a["id"] for a in new_alerts)
+                    for a in new_alerts:
+                        await websocket.send_json(a)
             except Exception:
                 pass
             await asyncio.sleep(5)
