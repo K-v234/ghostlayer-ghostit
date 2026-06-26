@@ -160,7 +160,8 @@ class EntityBaseline:
     def _save(self):
         """Persist baseline state to disk."""
         os.makedirs(self.state_dir, exist_ok=True)
-        path = os.path.join(self.state_dir, f"{self.entity_id}.json")
+        safe_id = self.entity_id.replace(" ", "_").replace("/", "_").replace(":", "_")
+        path = os.path.join(self.state_dir, f"{safe_id}.json")
         state = {
             f: {"ema": t.ema, "var": t.var, "n": t.n}
             for f, t in self.trackers.items()
@@ -173,7 +174,8 @@ class EntityBaseline:
 
     def _load(self):
         """Load persisted baseline state from disk."""
-        path = os.path.join(self.state_dir, f"{self.entity_id}.json")
+        safe_id = self.entity_id.replace(" ", "_").replace("/", "_").replace(":", "_")
+        path = os.path.join(self.state_dir, f"{safe_id}.json")
         if not os.path.exists(path):
             return
         try:

@@ -22,6 +22,10 @@ from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
 from detection.behavioral.engine import BehavioralAIEngine
+from detection.ransomware.ema_detector import RansomwareEMADetector
+from detection.ransomware.file_entropy_monitor import FileEntropyMonitor
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
+from detectors.lolbin_detector import LOLBinDetector
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,6 +100,11 @@ class DetectionEngine:
         self.last_offset = 0
         self.seen_ids = self._seed_seen_ids()
         self.start_time  = time.time()
+        self._ransomware = RansomwareEMADetector()
+        self._lolbin     = LOLBinDetector()
+        self._entropy_monitor = FileEntropyMonitor(pipeline_host=pipeline_host, pipeline_port=pipeline_port)
+        self._entropy_monitor.start()
+        log.info("C15 FileEntropyMonitor started")
         log.info(f"Engine ready — starting at offset {self.last_offset}")
 
     def _seed_seen_ids(self) -> set:
@@ -165,11 +174,34 @@ class DetectionEngine:
                 b = self._behavioral.process_event(e)
                 if b:
                     detections.append(Detection(
-                        rule_id   = "B001",
-                        severity  = b.severity,
-                        score     = int(b.score * 100),
-                        event     = e,
-                        rationale = b.rationale,
+                        rule_id     = "B001",
+                        severity    = b.severity,
+                        title       = f"Behavioral anomaly: {b.rationale}",
+                        description = f"Behavioral AI detected anomaly — score={b.score:.2f}",
+                        confidence  = int(b.score * 100),
+                        evidence    = [e],
+                    ))
+                # C15: Ransomware EMA
+                r = self._ransomware.process_event(e)
+                if r:
+                    detections.append(Detection(
+                        rule_id     = f"C15_{r.trigger}",
+                        severity    = r.severity.lower() if r.severity != "CRITICAL" else "critical",
+                        title       = f"Ransomware EMA: {r.trigger}",
+                        description = f"Ransomware behaviour detected — z_score={r.z_score:.1f}",
+                        confidence  = min(100, int(r.z_score * 20)),
+                        evidence    = [e],
+                    ))
+                # C14: LOLBin
+                l = self._lolbin.check_event(e)
+                if l:
+                    detections.append(Detection(
+                        rule_id     = "C14_LOLBIN",
+                        severity    = l.severity,
+                        title       = f"LOLBin: {l.technique}",
+                        description = f"Living-off-the-land binary abuse detected",
+                        confidence  = 85,
+                        evidence    = [e],
                     ))
 
             by_pid: dict[int, list] = {}

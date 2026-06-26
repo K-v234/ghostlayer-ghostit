@@ -1,0 +1,63 @@
+{
+  "date": "2026-06-26",
+  "tester": "Keerthivahanan",
+  "version": "V1",
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "Deep Reconnaissance \u2014 Full Port Scan",
+      "tool": "nmap -A -T4 -p- --min-rate 5000",
+      "result": "NOT_DETECTED",
+      "expected": "EDR does not detect inbound network scans \u2014 known limitation",
+      "severity": "INFO",
+      "note": "Ghost IT is EDR not IDS \u2014 network layer detection is out of scope"
+    },
+    {
+      "id": 2,
+      "name": "Canary HTTP Probe \u2014 Fake Internal App",
+      "tool": "curl probing port 8080",
+      "result": "DETECTED",
+      "score": 100,
+      "attacker_ip": "192.168.154.128",
+      "detection_time_min": 1,
+      "alert_type": "canary_hit:http",
+      "note": "Attacker IP captured, fake .env served, immediate detection"
+    },
+    {
+      "id": 3,
+      "name": "SSH Brute Force + Credential Harvesting",
+      "tool": "hydra -l keerthivahanan -P wordlist.txt ssh://target",
+      "result": "NOT_DETECTED",
+      "expected": "auth_failure_rate behavioral feature not wired to sshd failures",
+      "severity": "MEDIUM_GAP",
+      "note": "Real gap \u2014 sshd auth failures need /var/log/auth.log ingestion into C2 behavioral AI"
+    },
+    {
+      "id": 4,
+      "name": "Ransomware Simulation \u2014 Mass Encrypt + Rename",
+      "tool": "python3 mass file overwrite with os.urandom + rename to .locked",
+      "result": "DETECTED",
+      "expected": "C15 RansomwareEMADetector exists but not wired into detection engine",
+      "severity": "CRITICAL_GAP",
+      "note": "FIXED \u2014 C15 FileEntropyMonitor wired, PrivateTmp=no, detects .ghostlocked extension + high entropy writes. Score=96, alerts in dashboard within 1 min"
+    },
+    {
+      "id": 6,
+      "name": "LOLBin Fileless Attack \u2014 curl/wget/python exec",
+      "tool": "curl | bash, wget to /tmp, python3 exec",
+      "result": "NOT_DETECTED",
+      "expected": "R008 rule exists but Kali not serving payload \u2014 connections failed before eBPF could capture",
+      "severity": "MEDIUM_GAP",
+      "note": "Need live payload server on Kali for proper test \u2014 retest with serving HTTP server"
+    },
+    {
+      "id": 7,
+      "name": "C2 over DoH \u2014 20 beacons to 1.1.1.1",
+      "tool": "curl HTTPS DoH queries to Cloudflare",
+      "result": "NOT_DETECTED",
+      "expected": "C14 DoH detector built but not wired into detection engine",
+      "severity": "HIGH_GAP",
+      "note": "C14 needs to be wired into engine.py same as C15"
+    }
+  ]
+}

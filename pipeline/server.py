@@ -105,7 +105,7 @@ def insert_batch(events: list[dict]) -> int:
     rows = [(
         e.get("ts", 0), e.get("pid", 0), e.get("ppid", 0),
         e.get("uid", 0), e.get("gid", 0),
-        e.get("comm", ""), e.get("type", ""),
+        e.get("comm", ""), e.get("event_type", "") or e.get("type", ""),
         e.get("score", 0), bool(e.get("alert", False)),
         e.get("reasons", []),
         e.get("file"), e.get("args"), e.get("flags"),
