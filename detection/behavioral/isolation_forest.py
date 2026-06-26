@@ -39,11 +39,12 @@ class GhostIsolationForest:
     def add_sample(self, feature_vector: dict[str, float]):
         """Add a feature vector to training buffer."""
         vec = [feature_vector.get(f, 0.0) for f in BEHAVIORAL_FEATURES]
-        self.training_data.append(vec)
-
-        # Auto-train when enough samples
-        if len(self.training_data) >= self.min_samples and \
-           len(self.training_data) % 10 == 0:
+        # Cap training buffer at 5000 samples
+        if len(self.training_data) < 5000:
+            self.training_data.append(vec)
+        # Auto-train only at milestones
+        milestones = {100, 250, 500, 1000, 2500, 5000}
+        if len(self.training_data) in milestones:
             self.train()
 
     def train(self):

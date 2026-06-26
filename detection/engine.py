@@ -130,21 +130,19 @@ class DetectionEngine:
         return data.get("total", 0)
 
     def _fetch_new(self) -> list[dict]:
-        """Fetch events newer than max_id_at_start."""
+        """Fetch events newer than max_seen_id using /events/since cursor."""
         import time as _time
         # Skip if within startup suppression window
         if hasattr(self, "_skip_until") and _time.time() < self._skip_until:
             return []
-        data = api_get(f"{self.api}/events?limit=100&offset=0&min_score=0")
-        all_events = data.get("events", [])
-        new = [
-            e for e in all_events
-            if e.get("id", 0) > self.max_id_at_start
-            and e.get("id") not in self.seen_ids
-        ]
-        for e in new:
-            self.seen_ids.add(e.get("id"))
-        return new
+        # Use max_seen_id as cursor
+        if not hasattr(self, "_max_seen_id"):
+            self._max_seen_id = self.max_id_at_start
+        data = api_get(f"{self.api}/events/since?since_id={self._max_seen_id}&limit=100")
+        events = data.get("events", [])
+        if events:
+            self._max_seen_id = data.get("max_id", self._max_seen_id)
+        return events
     def _fetch_window(self) -> list[dict]:
         """Fetch recent events — only last 200 to avoid historical noise."""
         offset = max(0, self.last_offset - 200)

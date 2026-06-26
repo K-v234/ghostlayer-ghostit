@@ -284,6 +284,19 @@ def list_events(
                          "offset": offset, "events": df_to_json(rows)})
 
 
+@app.get("/events/since")
+def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)):
+    """Fetch events with id > since_id, ordered by id ASC — for detection engine cursor."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT id, ts, received_at, pid, ppid, uid, comm, type,
+                   score, alert, reasons, file, args, daddr, dport, dpdp_pii_flag
+            FROM events WHERE id > ?
+            ORDER BY id ASC LIMIT ?
+        """, [since_id, limit]).fetchdf()
+    return JSONResponse({"events": df_to_json(rows), "max_id": int(rows["id"].max()) if len(rows) > 0 else since_id})
+
+
 @app.get("/alerts")
 def list_alerts(limit: int = Query(100, ge=1, le=500)):
     with DB_LOCK:
