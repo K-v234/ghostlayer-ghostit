@@ -48,7 +48,7 @@
       "result": "NOT_DETECTED",
       "expected": "R008 rule exists but Kali not serving payload \u2014 connections failed before eBPF could capture",
       "severity": "MEDIUM_GAP",
-      "note": "Need live payload server on Kali for proper test \u2014 retest with serving HTTP server"
+      "note": "C1 eBPF agent not capturing exec events \u2014 only I/O events (write/read/recvmsg). LOLBin detector needs exec type. C1 gap \u2014 Dakshin's component."
     },
     {
       "id": 7,
@@ -57,7 +57,7 @@
       "result": "NOT_DETECTED",
       "expected": "C14 DoH detector built but not wired into detection engine",
       "severity": "HIGH_GAP",
-      "note": "C14 needs to be wired into engine.py same as C15"
+      "note": "C1 captures connect events but daddr=None \u2014 destination IP not populated by eBPF agent. C14 DoH detector needs daddr to check resolver whitelist. C1 gap \u2014 Dakshin."
     }
   ]
 }
