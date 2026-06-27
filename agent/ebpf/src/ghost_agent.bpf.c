@@ -475,9 +475,13 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
     if (addr.sin_family == 2) {
         __u32 ip   = addr.sin_addr.s_addr;
         __u16 port = __builtin_bswap16(addr.sin_port);
-        __u8 a = ip & 0xFF, b = (ip>>8)&0xFF, c = (ip>>16)&0xFF, d = (ip>>24)&0xFF;
-        e->path[0] = a; e->path[1] = b; e->path[2] = c; e->path[3] = d;
-        e->path[4] = (port >> 8) & 0xFF; e->path[5] = port & 0xFF;
+        /* sin_addr is network byte order (big-endian) — read MSB first */
+        e->path[0] = (ip >> 24) & 0xFF;
+        e->path[1] = (ip >> 16) & 0xFF;
+        e->path[2] = (ip >> 8)  & 0xFF;
+        e->path[3] = ip & 0xFF;
+        e->path[4] = (port >> 8) & 0xFF;
+        e->path[5] = port & 0xFF;
     }
 
     bpf_ringbuf_submit(e, 0);

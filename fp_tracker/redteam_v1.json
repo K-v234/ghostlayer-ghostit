@@ -45,10 +45,10 @@
       "id": 6,
       "name": "LOLBin Fileless Attack \u2014 curl/wget/python exec",
       "tool": "curl | bash, wget to /tmp, python3 exec",
-      "result": "DETECTED",
+      "result": "NOT_DETECTED",
       "expected": "R008 rule exists but Kali not serving payload \u2014 connections failed before eBPF could capture",
       "severity": "MEDIUM_GAP",
-      "note": "exec events now on critical ring, dual channel, ORDER BY id fix"
+      "note": "bash script args not in C1 \u2014 execve captures binary not script arg"
     },
     {
       "id": 7,
@@ -57,7 +57,7 @@
       "result": "DETECTED",
       "expected": "C14 DoH detector built but not wired into detection engine",
       "severity": "HIGH_GAP",
-      "note": "daddr decoded from raw bytes in events.rs from_raw()"
+      "note": "R004 HIGH \u2014 Interpreter Outbound Connection on DoH beacons"
     }
   ]
 }
