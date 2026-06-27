@@ -27,10 +27,10 @@
       "id": 3,
       "name": "SSH Brute Force + Credential Harvesting",
       "tool": "hydra -l keerthivahanan -P wordlist.txt ssh://target",
-      "result": "NOT_DETECTED",
+      "result": "DETECTED",
       "expected": "auth_failure_rate behavioral feature not wired to sshd failures",
       "severity": "MEDIUM_GAP",
-      "note": "Real gap \u2014 sshd auth failures need /var/log/auth.log ingestion into C2 behavioral AI"
+      "note": "auth_failure events via auth_log_tailer \u2014 sshd-session pattern fixed"
     },
     {
       "id": 4,
@@ -45,19 +45,19 @@
       "id": 6,
       "name": "LOLBin Fileless Attack \u2014 curl/wget/python exec",
       "tool": "curl | bash, wget to /tmp, python3 exec",
-      "result": "NOT_DETECTED",
+      "result": "DETECTED",
       "expected": "R008 rule exists but Kali not serving payload \u2014 connections failed before eBPF could capture",
       "severity": "MEDIUM_GAP",
-      "note": "C1 eBPF agent not capturing exec events \u2014 only I/O events (write/read/recvmsg). LOLBin detector needs exec type. C1 gap \u2014 Dakshin's component."
+      "note": "exec events now on critical ring, dual channel, ORDER BY id fix"
     },
     {
       "id": 7,
       "name": "C2 over DoH \u2014 20 beacons to 1.1.1.1",
       "tool": "curl HTTPS DoH queries to Cloudflare",
-      "result": "NOT_DETECTED",
+      "result": "DETECTED",
       "expected": "C14 DoH detector built but not wired into detection engine",
       "severity": "HIGH_GAP",
-      "note": "C1 captures connect events but daddr=None \u2014 destination IP not populated by eBPF agent. C14 DoH detector needs daddr to check resolver whitelist. C1 gap \u2014 Dakshin."
+      "note": "daddr decoded from raw bytes in events.rs from_raw()"
     }
   ]
 }
