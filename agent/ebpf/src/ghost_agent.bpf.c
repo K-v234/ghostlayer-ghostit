@@ -92,10 +92,11 @@ static __always_inline void fill_common(
     bpf_get_current_comm(e->comm, sizeof(e->comm));
 }
 
+/* High-value events: only drop agent-self and blacklisted PIDs.
+ * NO uid filter — root-level attacks must be captured. */
 static __always_inline int should_drop(void)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     __u32 key, *val;
 
     /* Drop our own agent */
@@ -104,15 +105,24 @@ static __always_inline int should_drop(void)
     if (val && *val && pid == *val)
         return 1;
 
-    /* Drop UIDs below minimum */
-    key = 0;
-    val = bpf_map_lookup_elem(&ghost_config, &key);
-    if (val && uid < *val)
-        return 1;
-
     /* Drop blacklisted PIDs */
     __u8 *bl = bpf_map_lookup_elem(&pid_blacklist, &pid);
     if (bl)
+        return 1;
+
+    return 0;
+}
+
+/* Noisy events (read, write, open): apply uid filter to reduce volume.
+ * Keeps system daemon noise out while capturing user-space activity. */
+static __always_inline int should_drop_noisy(void)
+{
+    if (should_drop()) return 1;
+
+    __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+    __u32 key = 0, *val;
+    val = bpf_map_lookup_elem(&ghost_config, &key);
+    if (val && uid < *val)
         return 1;
 
     return 0;
@@ -206,6 +216,19 @@ int handle_capset(struct trace_event_raw_sys_enter *ctx)
 #define PROT_EXEC 0x4
 #define MAP_ANON  0x20
 
+static __always_inline int is_jit_process(void)
+{
+    char comm[16] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    /* Filter known JIT processes that generate excessive mprotect/mmap_exec events */
+    if (comm[0]=='g' && comm[1]=='n' && comm[2]=='o' && comm[3]=='m') return 1; /* gnome-* */
+    if (comm[0]=='X' && comm[1]=='w' && comm[2]=='a' && comm[3]=='y') return 1; /* Xwayland */
+    if (comm[0]=='f' && comm[1]=='i' && comm[2]=='r' && comm[3]=='e') return 1; /* firefox */
+    if (comm[0]=='c' && comm[1]=='h' && comm[2]=='r' && comm[3]=='o') return 1; /* chrome */
+    if (comm[0]=='j' && comm[1]=='a' && comm[2]=='v' && comm[3]=='a') return 1; /* java */
+    return 0;
+}
+
 SEC("tp/syscalls/sys_enter_mmap")
 int handle_mmap(struct trace_event_raw_sys_enter *ctx)
 {
@@ -217,10 +240,13 @@ int handle_mmap(struct trace_event_raw_sys_enter *ctx)
 
     if (!(prot & PROT_EXEC)) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    /* Skip JIT processes — they generate hundreds of mmap_exec per minute */
+    if (is_jit_process()) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
 
-    fill_common(e, EVENT_MMAP_EXEC, PRIORITY_CRITICAL);
+    fill_common(e, EVENT_MMAP_EXEC, PRIORITY_STANDARD);
     e->flags = (__u16)(prot | (flags << 8));
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -234,10 +260,13 @@ int handle_mprotect(struct trace_event_raw_sys_enter *ctx)
     __u64 prot = (__u64)ctx->args[2];
     if (!(prot & PROT_EXEC)) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    /* Skip JIT processes — they flood the critical ring */
+    if (is_jit_process()) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
 
-    fill_common(e, EVENT_MPROTECT, PRIORITY_CRITICAL);
+    fill_common(e, EVENT_MPROTECT, PRIORITY_STANDARD);
     e->flags = (__u16)prot;
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -250,12 +279,16 @@ int handle_mprotect(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_execve")
 int handle_execve(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop()) {
+        return 0;
+    }
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
-    if (!e) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) {
+        return 0;
+    }
 
-    fill_common(e, EVENT_EXEC, PRIORITY_STANDARD);
+    fill_common(e, EVENT_EXEC, PRIORITY_CRITICAL);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[0]);
     bpf_ringbuf_submit(e, 0);
@@ -267,10 +300,10 @@ int handle_execveat(struct trace_event_raw_sys_enter *ctx)
 {
     if (should_drop()) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
     if (!e) return 0;
 
-    fill_common(e, EVENT_EXEC, PRIORITY_STANDARD);
+    fill_common(e, EVENT_EXEC, PRIORITY_CRITICAL);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[1]);
     bpf_ringbuf_submit(e, 0);
@@ -326,7 +359,7 @@ int handle_prctl(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_openat")
 int handle_openat(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     char path[16] = {};
     bpf_probe_read_user_str(path, sizeof(path), (const void *)(long)ctx->args[1]);
@@ -512,7 +545,7 @@ int handle_vfork(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_read")
 int handle_read(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     /* Only track reads on interesting fds — skip fd 0,1,2 */
     int fd = (int)ctx->args[0];
@@ -529,7 +562,7 @@ int handle_read(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_write")
 int handle_write(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     int fd = (int)ctx->args[0];
     if (fd <= 2) return 0;

@@ -274,7 +274,7 @@ def list_events(
             SELECT id, ts, received_at, pid, ppid, uid, comm, type,
                    score, alert, reasons, file, args, daddr, dport, dpdp_pii_flag
             FROM events {where_sql}
-            ORDER BY ts DESC LIMIT ? OFFSET ?
+            ORDER BY id DESC LIMIT ? OFFSET ?
         """, params).fetchdf()
         total = DB_CONN.execute(f"""
             SELECT COUNT(*) FROM events {where_sql}
@@ -304,7 +304,7 @@ def list_alerts(limit: int = Query(100, ge=1, le=500)):
             SELECT id, ts, received_at, pid, ppid, comm, type,
                    score, reasons, file, daddr, dport
             FROM events WHERE alert=true
-            ORDER BY ts DESC LIMIT ?
+            ORDER BY id DESC LIMIT ?
         """, [limit]).fetchdf()
     return JSONResponse({"total": len(rows), "alerts": df_to_json(rows)})
 
@@ -376,7 +376,7 @@ def events_by_comm(comm: str, limit: int = Query(100, ge=1, le=500)):
         rows = DB_CONN.execute("""
             SELECT id, ts, received_at, pid, ppid, comm, type,
                    score, alert, reasons, file, daddr, dport
-            FROM events WHERE comm=? ORDER BY ts DESC LIMIT ?
+            FROM events WHERE comm=? ORDER BY id DESC LIMIT ?
         """, [comm, limit]).fetchdf()
     return JSONResponse({"comm": comm, "total": len(rows), "events": df_to_json(rows)})
 
