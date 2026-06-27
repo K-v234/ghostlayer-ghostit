@@ -471,13 +471,14 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
     bpf_probe_read_user(&addr, sizeof(addr), (const void *)(long)ctx->args[1]);
     e->flags = addr.sin_family;
 
-    /* Encode IP:port in path field */
-    __u32 ip   = addr.sin_addr.s_addr;
-    __u16 port = __builtin_bswap16(addr.sin_port);
-    /* Store raw IP+port in path as hex string */
-    __u8 a = ip & 0xFF, b = (ip>>8)&0xFF, c = (ip>>16)&0xFF, d = (ip>>24)&0xFF;
-    e->path[0] = a; e->path[1] = b; e->path[2] = c; e->path[3] = d;
-    e->path[4] = (port >> 8) & 0xFF; e->path[5] = port & 0xFF;
+    /* Only encode IP:port for AF_INET (2) — skip AF_UNIX */
+    if (addr.sin_family == 2) {
+        __u32 ip   = addr.sin_addr.s_addr;
+        __u16 port = __builtin_bswap16(addr.sin_port);
+        __u8 a = ip & 0xFF, b = (ip>>8)&0xFF, c = (ip>>16)&0xFF, d = (ip>>24)&0xFF;
+        e->path[0] = a; e->path[1] = b; e->path[2] = c; e->path[3] = d;
+        e->path[4] = (port >> 8) & 0xFF; e->path[5] = port & 0xFF;
+    }
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -838,6 +839,23 @@ int BPF_KPROBE(handle_tcp_connect, struct sock *sk)
     struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
     fill_common(e, EVENT_TCP_CONNECT, PRIORITY_STANDARD);
+
+    /* Extract destination IP and port from sock struct via CO-RE */
+    __u32 daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    __u16 dport = BPF_CORE_READ(sk, __sk_common.skc_dport);
+
+    /* Store as A.B.C.D:PORT raw bytes in path — decoded by Rust events.rs */
+    __u8 a = daddr & 0xFF;
+    __u8 b = (daddr >> 8)  & 0xFF;
+    __u8 c = (daddr >> 16) & 0xFF;
+    __u8 d = (daddr >> 24) & 0xFF;
+    __u16 port = __builtin_bswap16(dport);
+
+    e->path[0] = a; e->path[1] = b;
+    e->path[2] = c; e->path[3] = d;
+    e->path[4] = (port >> 8) & 0xFF;
+    e->path[5] = port & 0xFF;
+
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

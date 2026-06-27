@@ -99,6 +99,31 @@ def init_db(db_path: str):
         log.warning(f"Retention cleanup error: {ex}")
 
 
+
+def _extract_daddr(path: str | None) -> str | None:
+    """Extract IP from path field formatted as 'A.B.C.D:PORT'."""
+    if not path or ':' not in path:
+        return None
+    try:
+        parts = path.rsplit(':', 1)
+        ip = parts[0]
+        # Validate it looks like an IP
+        if all(p.isdigit() for p in ip.split('.')) and len(ip.split('.')) == 4:
+            return ip
+    except Exception:
+        pass
+    return None
+
+def _extract_dport(path: str | None) -> int | None:
+    """Extract port from path field formatted as 'A.B.C.D:PORT'."""
+    if not path or ':' not in path:
+        return None
+    try:
+        port = int(path.rsplit(':', 1)[1])
+        return port if 0 < port < 65536 else None
+    except Exception:
+        return None
+
 def insert_batch(events: list[dict]) -> int:
     if not events:
         return 0
@@ -108,8 +133,10 @@ def insert_batch(events: list[dict]) -> int:
         e.get("comm", ""), e.get("event_type", "") or e.get("type", ""),
         e.get("score", 0), bool(e.get("alert", False)),
         e.get("reasons", []),
-        e.get("file"), e.get("args"), e.get("flags"),
-        e.get("daddr"), e.get("dport"), e.get("family"),
+        e.get("file") or e.get("path"), e.get("args"), e.get("flags"),
+        e.get("daddr") or _extract_daddr(e.get("path")),
+        e.get("dport") or _extract_dport(e.get("path")),
+        e.get("family"),
         e.get("clone_flags"), bool(e.get("dpdp_pii_flag", False)),
     ) for e in events]
 

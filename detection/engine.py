@@ -210,7 +210,7 @@ class DetectionEngine:
             for evts in by_pid.values():
                 if len(evts) >= 2:
                     detections.extend(
-                        check_sequence(sorted(evts, key=lambda x: x["ts"]))
+                        check_sequence(sorted(evts, key=lambda x: x.get("ts") or 0))
                     )
 
         # Layer 2 + 3 — window, once per 6 cycles (60s)
