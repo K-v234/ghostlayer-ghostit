@@ -365,10 +365,17 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
     bpf_probe_read_user_str(path, sizeof(path), (const void *)(long)ctx->args[1]);
     if (is_noisy_path((const void *)(long)ctx->args[1])) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
-    if (!e) return 0;
+    /* Elevate /tmp and /dev/shm opens to critical ring — never dropped */
+    __u8 priority = PRIORITY_STANDARD;
+    if (path[0]=='/' && path[1]=='t' && path[2]=='m' && path[3]=='p')
+        priority = PRIORITY_CRITICAL;
+    if (path[0]=='/' && path[1]=='d' && path[2]=='e' && path[3]=='v' &&
+        path[4]=='/' && path[5]=='s' && path[6]=='h' && path[7]=='m')
+        priority = PRIORITY_CRITICAL;
 
-    fill_common(e, EVENT_OPEN, PRIORITY_STANDARD);
+    struct ghost_event *e = RESERVE(priority);
+    if (!e) return 0;
+    fill_common(e, EVENT_OPEN, priority);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[1]);
     e->flags = (__u16)ctx->args[2];

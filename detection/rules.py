@@ -146,6 +146,17 @@ def check_event(event: dict) -> Optional[Detection]:
             evidence    = [event],
         )
 
+    # R014 — Shell reading script from /tmp or /dev/shm (LOLBin dropper)
+    if type_ in ("open", "lsm_open") and comm in ("bash","sh","dash","zsh","fish")             and file_ and any(p in file_ for p in ("/tmp/", "/dev/shm/")):
+        return Detection(
+            rule_id     = "R014",
+            severity    = "high",
+            title       = "Shell Reading Script from Temp Directory",
+            description = f"{comm} opened {file_} — possible dropper execution",
+            confidence  = 85,
+            evidence    = [event],
+        )
+
     return None
 
 
@@ -179,8 +190,8 @@ def check_sequence(events: list[dict]) -> list[Detection]:
     # R010 — Download + execute pattern
     exec_files = [e.get("file","") for e in events if e.get("type") == "exec"]
     open_files = [e.get("file","") for e in events if e.get("type") == "open"]
-    if any("/tmp" in f or "/dev/shm" in f for f in open_files) and \
-       any("/tmp" in f or "/dev/shm" in f for f in exec_files):
+    if any("/tmp" in (f or "") or "/dev/shm" in (f or "") for f in open_files) and \
+       any("/tmp" in (f or "") or "/dev/shm" in (f or "") for f in exec_files):
         detections.append(Detection(
             rule_id     = "R010",
             severity    = "critical",

@@ -147,10 +147,24 @@ class DetectionEngine:
         # Use max_seen_id as cursor
         if not hasattr(self, "_max_seen_id"):
             self._max_seen_id = self.max_id_at_start
-        data = api_get(f"{self.api}/events/since?since_id={self._max_seen_id}&limit=100")
+        data = api_get(f"{self.api}/events/since?since_id={self._max_seen_id}&limit=500")
         events = data.get("events", [])
         if events:
             self._max_seen_id = data.get("max_id", self._max_seen_id)
+        # Supplemental fetch: shell opens of /tmp and /dev/shm — high-value
+        # These get buried in main stream by python3 library loads
+        for prefix in ("/tmp/", "/dev/shm/"):
+            try:
+                tmp_data = api_get(
+                    f"{self.api}/events/file-opens?path_prefix={prefix}"
+                    f"&since_id={self.max_id_at_start}&limit=50"
+                )
+                for e in tmp_data.get("events", []):
+                    if e.get("id", 0) > self._max_seen_id - 10000:
+                        if not any(x.get("id") == e.get("id") for x in events):
+                            events.append(e)
+            except Exception:
+                pass
         return events
     def _fetch_window(self) -> list[dict]:
         """Fetch recent events — only last 200 to avoid historical noise."""
@@ -265,7 +279,7 @@ class DetectionEngine:
                 log.info(f"Stopped — total: {total}")
                 break
             except Exception as ex:
-                log.error(f"Engine error: {ex}")
+                import traceback; log.error(f"Engine error: {ex}\n{traceback.format_exc()}")
                 time.sleep(self.poll)
 
 

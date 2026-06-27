@@ -420,6 +420,37 @@ import pathlib as _pathlib
 
 CHAIN_STATE_FILE = _pathlib.Path.home() / "ghostlayer/data/chain_state.json"
 
+@app.get("/events/file-opens")
+def events_file_opens(
+    path_prefix: str = Query(..., description="File path prefix to filter"),
+    comm: str = Query(None),
+    since_id: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """Fetch open events matching a path prefix — for detection engine high-value file monitoring."""
+    try:
+        q = """
+            SELECT id, ts, received_at, pid, uid, comm, type, score, alert,
+                   reasons, file, args, daddr, dport, dpdp_pii_flag
+            FROM ghost_events
+            WHERE type = 'open'
+              AND file LIKE ?
+              AND id > ?
+        """
+        params = [path_prefix + "%", since_id]
+        if comm:
+            q += " AND comm = ?"
+            params.append(comm)
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = DB_CONN.execute(q, params).fetchall()
+        cols = ["id","ts","received_at","pid","uid","comm","type","score",
+                "alert","reasons","file","args","daddr","dport","dpdp_pii_flag"]
+        events = [dict(zip(cols, r)) for r in rows]
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        return {"events": [], "total": 0, "error": str(e)}
+
 @app.get("/chains")
 def get_chains():
     """Active attack chains from detection engine."""
