@@ -83,8 +83,25 @@ class AlertCorrelator:
         self._buckets = defaultdict(list)
         self._lock = threading.Lock()
         self._running = True
+        # Close any stale open incidents from previous sessions (older than 4 hours)
+        self._close_stale_incidents()
         self._expiry_thread = threading.Thread(target=self._expiry_loop,daemon=True,name="C17-Expiry")
         self._expiry_thread.start()
+
+    def _close_stale_incidents(self):
+        """Close open incidents from previous sessions older than 4 hours."""
+        try:
+            from datetime import datetime, timezone, timedelta
+            import duckdb, os
+            db_path = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=4)
+            with duckdb.connect(db_path) as con:
+                result = con.execute(
+                    "UPDATE incidents SET closed=TRUE, updated_at=? WHERE closed=FALSE AND created_at < ?",
+                    [datetime.now(timezone.utc), cutoff]
+                )
+        except Exception:
+            pass
 
     def stop(self): self._running=False; self._flush_all()
 
