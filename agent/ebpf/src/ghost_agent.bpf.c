@@ -125,6 +125,22 @@ static __always_inline int should_drop_noisy(void)
     if (val && uid < *val)
         return 1;
 
+
+    /* Drop known high-noise zero-security-value processes */
+    char comm[16] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    /* Firefox/Chrome renderer threads (Thread-N) */
+    if (comm[0]=='T' && comm[1]=='h' && comm[2]=='r' && comm[3]=='e' &&
+        comm[4]=='a' && comm[5]=='d' && comm[6]=='-')
+        return 1;
+    /* KMS/DRM graphics threads */
+    if (comm[0]=='K' && comm[1]=='M' && comm[2]=='S' && comm[3]==' ')
+        return 1;
+    /* gnome-shell desktop UI */
+    if (comm[0]=='g' && comm[1]=='n' && comm[2]=='o' && comm[3]=='m' &&
+        comm[4]=='e' && comm[5]=='-' && comm[6]=='s')
+        return 1;
+
     return 0;
 }
 
