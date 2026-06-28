@@ -1,26 +1,19 @@
-# STATUS: 100% — FastAPI dashboard server, bcrypt session auth, REST + WebSocket
+# STATUS: 100% — FastAPI dashboard API — SSE real-time push, industry-level
 # dashboard/api/server.py
 # GhostIT C13 — Management Dashboard API
 # Ghost Layer Technologies · Chennai · June 2026
 
-import os
-import sys
-import json
-import time
-import asyncio
-import logging
-import secrets
-import hashlib
+import os, sys, json, time, asyncio, logging, secrets
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import AsyncGenerator
 
-import bcrypt
-import duckdb
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
+import bcrypt, duckdb
+from fastapi import FastAPI, HTTPException, Depends, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import urllib.request as _ur
 
 sys.path.insert(0, os.path.expanduser("~/ghostlayer"))
 
@@ -29,46 +22,68 @@ logging.basicConfig(level=logging.INFO,
     format="%(asctime)s [dashboard] %(levelname)s %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S")
 
-EVENTS_DB   = os.path.expanduser("~/ghostlayer/data/events.db")
-INCIDENT_DB = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
+EVENTS_DB    = os.path.expanduser("~/ghostlayer/data/events.db")
+INCIDENT_DB  = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
 PIPELINE_API = "http://127.0.0.1:8000"
+
+NOISE_COMMS   = {"ghost-agent", "ghostit-agent-l", "ghost-agent-lin", ""}
+NOISE_REASONS = {"file_close_write", "file_modify", "file_close_read"}
 
 app = FastAPI(title="Ghost IT Dashboard API", version="1.0.0")
 app.add_middleware(CORSMiddleware,
-    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    expose_headers=["Last-Event-ID"])
 
-# Serve React frontend
 _build = os.path.expanduser("~/ghostlayer/dashboard/frontend/build")
 if os.path.isdir(_build):
     app.mount("/app", StaticFiles(directory=_build, html=True), name="frontend")
 
-# ── Session store (in-memory, bcrypt-protected) ───────────────────────────────
-_SESSIONS: dict[str, dict] = {}
+SESSION_FILE = os.path.expanduser("~/.ghostit_sessions.json")
+
+def _load_sessions() -> dict:
+    try:
+        with open(SESSION_FILE) as f:
+            raw = json.load(f)
+        # Re-hydrate datetime objects
+        return {k: {**v, "expires": datetime.fromisoformat(v["expires"])} for k,v in raw.items()}
+    except Exception:
+        return {}
+
+def _save_sessions(sessions: dict):
+    try:
+        serialisable = {k: {**v, "expires": v["expires"].isoformat()} for k,v in sessions.items()}
+        with open(SESSION_FILE, "w") as f:
+            json.dump(serialisable, f)
+    except Exception:
+        pass
+
+_SESSIONS: dict[str, dict] = _load_sessions()
 SESSION_TTL = timedelta(hours=8)
-
-# Default admin — change password on first login
-_USERS = {
-    "admin": bcrypt.hashpw(b"ghostit-admin-2026", bcrypt.gensalt()).decode()
-}
-
+_USERS = {"admin": bcrypt.hashpw(b"ghostit-admin-2026", bcrypt.gensalt()).decode()}
 security = HTTPBearer(auto_error=False)
 
 def _verify_session(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if not credentials:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    token = credentials.credentials
-    session = _SESSIONS.get(token)
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    if datetime.now(timezone.utc) > session["expires"]:
-        del _SESSIONS[token]
-        raise HTTPException(status_code=401, detail="Session expired")
-    return session
+        raise HTTPException(401, "Not authenticated")
+    s = _SESSIONS.get(credentials.credentials)
+    if not s:
+        raise HTTPException(401, "Invalid session")
+    if datetime.now(timezone.utc) > s["expires"]:
+        del _SESSIONS[credentials.credentials]
+        raise HTTPException(401, "Session expired")
+    return s
 
-def _events_conn(): return duckdb.connect(EVENTS_DB, read_only=True)
+def _verify_token(token: str) -> bool:
+    s = _SESSIONS.get(token)
+    if not s:
+        return False
+    if datetime.now(timezone.utc) > s["expires"]:
+        _SESSIONS.pop(token, None)
+        return False
+    return True
+
 def _incident_conn(): return duckdb.connect(INCIDENT_DB, read_only=True)
 
-# ── Auth endpoints ────────────────────────────────────────────────────────────
 @app.post("/api/auth/login")
 async def login(request: Request):
     body = await request.json()
@@ -76,119 +91,156 @@ async def login(request: Request):
     password = body.get("password", "").encode()
     hashed = _USERS.get(username, "").encode()
     if not hashed or not bcrypt.checkpw(password, hashed):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(401, "Invalid credentials")
     token = secrets.token_hex(32)
-    _SESSIONS[token] = {
-        "username": username,
-        "expires": datetime.now(timezone.utc) + SESSION_TTL,
-    }
+    _SESSIONS[token] = {"username": username,
+                        "expires": datetime.now(timezone.utc) + SESSION_TTL}
     log.info(f"Login: {username}")
+    _save_sessions(_SESSIONS)
     return {"token": token, "expires_in": int(SESSION_TTL.total_seconds())}
 
 @app.post("/api/auth/logout")
 async def logout(session=Depends(_verify_session),
                  credentials: HTTPAuthorizationCredentials = Depends(security)):
     _SESSIONS.pop(credentials.credentials, None)
+    _save_sessions(_SESSIONS)
     return {"status": "logged out"}
 
-# ── Alert endpoints ───────────────────────────────────────────────────────────
+def _fetch_alerts(limit: int = 50) -> list[dict]:
+    try:
+        with _ur.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=3) as r:
+            data = json.loads(r.read())
+        cutoff = int(time.time()) - 86400
+        return [
+            a for a in data.get("alerts", [])
+            if a.get("comm", "") not in NOISE_COMMS
+            and a.get("received_at", 0) > cutoff
+            and not any(n in str(a.get("reasons", "")) for n in NOISE_REASONS)
+            and not str(a.get("file", "")).startswith("python3 made outbound TCP connection to 1.")
+            and not str(a.get("file", "")).startswith("python3 made outbound TCP connection to 127.")
+            and not str(a.get("file", "")).startswith("python3 made outbound TCP connection to 11.")
+        ]
+    except Exception:
+        return []
+
+async def _sse_generator(last_id: int) -> AsyncGenerator[str, None]:
+    POLL_INTERVAL  = 2
+    HEARTBEAT_INTERVAL = 15
+    seen_id  = last_id
+    last_hb  = time.time()
+    yield f"event: sync\ndata: {json.dumps({'ts': int(time.time()), 'resumed_from': last_id})}\n\n"
+    while True:
+        now = time.time()
+        if now - last_hb >= HEARTBEAT_INTERVAL:
+            yield f": heartbeat {int(now)}\n\n"
+            last_hb = now
+        alerts = _fetch_alerts(50)
+        new_alerts = sorted(
+            [a for a in alerts if a.get("id", 0) > seen_id],
+            key=lambda a: a.get("id", 0)
+        )
+        for alert in new_alerts:
+            event_id = alert.get("id", 0)
+            seen_id  = max(seen_id, event_id)
+            severity = ("critical" if alert.get("score", 0) >= 90
+                        else "high" if alert.get("score", 0) >= 70
+                        else "alert")
+            yield f"id: {event_id}\nevent: {severity}\ndata: {json.dumps(alert)}\n\n"
+            log.info(f"SSE pushed id={event_id} score={alert.get('score')} comm={alert.get('comm')}")
+        await asyncio.sleep(POLL_INTERVAL)
+
+@app.get("/api/stream/alerts")
+async def stream_alerts(
+    request: Request,
+    token: str = Query(""),
+    lastEventId: int = Query(0),
+):
+    header_last_id = request.headers.get("last-event-id", "")
+    if header_last_id.isdigit():
+        lastEventId = int(header_last_id)
+
+    if not token or not _verify_token(token):
+        async def _auth_err():
+            yield "event: auth_error\ndata: {\"error\": \"Invalid token\"}\n\n"
+        return StreamingResponse(_auth_err(), media_type="text/event-stream")
+
+    return StreamingResponse(
+        _sse_generator(lastEventId),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        }
+    )
+
 @app.get("/api/alerts")
 def get_alerts(limit: int = 100, session=Depends(_verify_session)):
-    import urllib.request
-    try:
-        with urllib.request.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=5) as r:
-            data = json.loads(r.read())
-        import time as _t
-        # DuckDB now() returns IST-offset epoch (5.5h ahead of UTC unix time)
-        # Adjust cutoff accordingly
-        IST_OFFSET = 19800  # 5.5 hours in seconds
-        cutoff = int(_t.time()) + IST_OFFSET - 86400  # last 24 hours
-        # Noise reasons to suppress
-        NOISE = {"file_close_write","file_modify","file_close_read"}
-        alerts = [a for a in data.get("alerts", [])
-                  if a.get("comm","") not in ("ghost-agent","ghostit-agent-l","ghost-agent-lin")
-                  and a.get("comm","") != ""
-                  and a.get("received_at", 0) > cutoff
-                  and not any(n in str(a.get("reasons","")) for n in NOISE)]
-        return {"total": len(alerts), "alerts": alerts}
-    except Exception as ex:
-        return {"total": 0, "alerts": [], "error": str(ex)}
+    return {"total": 0, "alerts": _fetch_alerts(limit)}
 
-# ── Incident endpoints ────────────────────────────────────────────────────────
 @app.get("/api/incidents")
 def get_incidents(limit: int = 50, session=Depends(_verify_session)):
     try:
         with _incident_conn() as con:
+            cutoff_str = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
             rows = con.execute("""
                 SELECT incident_id, created_at, updated_at, host, severity,
                        confidence, tactic_id, tactic_name, technique_id,
                        technique_name, alert_count, sources, summary, closed
                 FROM incidents
-                WHERE updated_at >= NOW() - INTERVAL 24 HOURS
+                WHERE updated_at >= TIMESTAMPTZ ?
                 ORDER BY updated_at DESC LIMIT ?
-            """, [limit]).fetchall()
-        import json as _json
-        incidents = [{"incident_id": r[0], "created_at": str(r[1]),
-                      "updated_at": str(r[2]), "host": r[3],
-                      "severity": r[4], "confidence": r[5],
-                      "tactic_id": r[6], "tactic_name": r[7],
-                      "technique_id": r[8], "technique_name": r[9],
-                      "alert_count": r[10],
-                      "sources": _json.loads(r[11]) if isinstance(r[11], str) else (r[11] or []),
-                      "summary": r[12], "closed": r[13]} for r in rows]
+            """, [cutoff_str, limit]).fetchall()
+        incidents = [
+            {"incident_id": r[0], "created_at": str(r[1]), "updated_at": str(r[2]),
+             "host": r[3], "severity": r[4], "confidence": r[5],
+             "tactic_id": r[6], "tactic_name": r[7],
+             "technique_id": r[8], "technique_name": r[9],
+             "alert_count": r[10],
+             "sources": json.loads(r[11]) if isinstance(r[11], str) else (r[11] or []),
+             "summary": r[12], "closed": r[13]}
+            for r in rows
+        ]
         return {"total": len(incidents), "incidents": incidents}
     except Exception as ex:
+        log.error(f"incidents error: {ex}")
         return {"total": 0, "incidents": [], "error": str(ex)}
 
-# ── Endpoint status ───────────────────────────────────────────────────────────
 @app.get("/api/endpoints")
 def get_endpoints(session=Depends(_verify_session)):
-    import urllib.request
     try:
-        with urllib.request.urlopen(f"{PIPELINE_API}/top/detailed?limit=50", timeout=5) as r:
+        with _ur.urlopen(f"{PIPELINE_API}/top/detailed?limit=50", timeout=5) as r:
             data = json.loads(r.read())
         procs = data.get("processes", [])
-        endpoints = [{"comm": p.get("comm"), "pid": p.get("pid", 0),
-                      "event_count": p.get("total", 0),
-                      "alerts": p.get("alerts", 0),
-                      "max_score": p.get("max_score", 0),
-                      "last_seen": p.get("last_seen", "")
-                      } for p in procs]
-        return {"total": len(endpoints), "endpoints": endpoints}
+        return {"total": len(procs), "endpoints": [
+            {"comm": p.get("comm"), "pid": p.get("pid", 0),
+             "event_count": p.get("total", 0), "alerts": p.get("alerts", 0),
+             "max_score": p.get("max_score", 0), "last_seen": p.get("last_seen", "")}
+            for p in procs
+        ]}
     except Exception as ex:
         return {"total": 0, "endpoints": [], "error": str(ex)}
 
-# ── Stats endpoint ────────────────────────────────────────────────────────────
 @app.get("/api/stats")
 def get_stats(session=Depends(_verify_session)):
-    import urllib.request
     try:
-        with urllib.request.urlopen(f"{PIPELINE_API}/stats", timeout=5) as r:
+        with _ur.urlopen(f"{PIPELINE_API}/stats", timeout=5) as r:
             pipeline_stats = json.loads(r.read())
     except Exception:
         pipeline_stats = {}
     try:
         with duckdb.connect(INCIDENT_DB, read_only=True) as con:
-            open_incidents = con.execute(
-                "SELECT COUNT(*) FROM incidents WHERE closed=FALSE").fetchone()[0]
-            critical = con.execute(
-                "SELECT COUNT(*) FROM incidents WHERE severity='critical' AND closed=FALSE").fetchone()[0]
+            open_inc = con.execute("SELECT COUNT(*) FROM incidents WHERE closed=FALSE").fetchone()[0]
+            critical = con.execute("SELECT COUNT(*) FROM incidents WHERE severity='critical' AND closed=FALSE").fetchone()[0]
     except Exception:
-        open_incidents = 0
-        critical = 0
-    return {
-        "pipeline": pipeline_stats,
-        "open_incidents": open_incidents,
-        "critical_incidents": critical,
-        "active_sessions": len(_SESSIONS),
-    }
+        open_inc = critical = 0
+    return {"pipeline": pipeline_stats, "open_incidents": open_inc,
+            "critical_incidents": critical, "active_sessions": len(_SESSIONS)}
 
-# ── DPDP compliance endpoints ─────────────────────────────────────────────────
 @app.post("/api/compliance/erasure/{customer_id}")
 def request_erasure(customer_id: str, session=Depends(_verify_session)):
     from compliance.erasure_api import erasure_api
-    r = erasure_api.request_erasure(customer_id)
-    return r.to_dict()
+    return erasure_api.request_erasure(customer_id).to_dict()
 
 @app.get("/api/compliance/audit/{customer_id}")
 def get_audit_report(customer_id: str, session=Depends(_verify_session)):
@@ -199,104 +251,27 @@ def get_audit_report(customer_id: str, session=Depends(_verify_session)):
 async def grant_consent(request: Request, session=Depends(_verify_session)):
     from compliance.consent_api import consent_store
     body = await request.json()
-    r = consent_store.grant(
-        customer_id=body["customer_id"],
-        entity=body["entity"],
-        purpose=body["purpose"])
-    return r.to_dict()
+    return consent_store.grant(customer_id=body["customer_id"],
+        entity=body["entity"], purpose=body["purpose"]).to_dict()
 
-# ── Causal Intelligence — Claude API proxy ───────────────────────────────────
 @app.post("/api/causal/analyze")
 async def causal_analyze(request: Request, session=Depends(_verify_session)):
-    import urllib.request as _ur
     body = await request.json()
     chain = body.get("chain", {})
-
-    prompt = f"""You are a cybersecurity analyst for an Indian SME. Explain this attack chain clearly to a non-technical business owner.
-
-Attack Chain:
-- Severity: {chain.get('severity','unknown').upper()}
-- Stage: {chain.get('current_stage','unknown')}
-- Duration: {chain.get('duration_s',0)} seconds
-- Events: {chain.get('event_count',0)}
-- MITRE Tactics: {', '.join(chain.get('tactics',[]))}
-- MITRE Techniques: {', '.join(chain.get('techniques',[]))}
-- Escalating: {'YES - ACTIVE THREAT' if chain.get('escalating') else 'No'}
-
-Explain in 3 short paragraphs:
-1. What happened in simple terms
-2. What the attacker was trying to do
-3. What to do right now
-
-Under 150 words. Be direct and clear."""
-
+    prompt = f"""You are a cybersecurity analyst for an Indian SME. Explain this attack chain to a non-technical business owner.
+Attack Chain: Severity={chain.get('severity','unknown').upper()}, Stage={chain.get('current_stage','unknown')}, Duration={chain.get('duration_s',0)}s, Events={chain.get('event_count',0)}, Tactics={', '.join(chain.get('tactics',[]))}, Techniques={', '.join(chain.get('techniques',[]))}, Escalating={'YES' if chain.get('escalating') else 'No'}
+3 short paragraphs: what happened, what attacker wanted, what to do now. Under 150 words."""
     try:
-        payload = json.dumps({
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 1000,
-            "messages": [{"role": "user", "content": prompt}]
-        }).encode()
-        req = _ur.Request(
-            "https://api.anthropic.com/v1/messages",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
+        payload = json.dumps({"model": "claude-sonnet-4-6", "max_tokens": 1000,
+            "messages": [{"role": "user", "content": prompt}]}).encode()
+        req = _ur.Request("https://api.anthropic.com/v1/messages", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
         with _ur.urlopen(req, timeout=30) as r:
             data = json.loads(r.read())
-        text_out = data.get("content", [{}])[0].get("text", "Analysis unavailable")
-        return {"analysis": text_out}
+        return {"analysis": data.get("content", [{}])[0].get("text", "Unavailable")}
     except Exception as ex:
         log.error(f"Claude API error: {ex}")
         return {"analysis": f"API error: {ex}"}
-
-# ── WebSocket — real-time alert feed ─────────────────────────────────────────
-class ConnectionManager:
-    def __init__(self):
-        self.active: list[WebSocket] = []
-
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.active.append(ws)
-
-    def disconnect(self, ws: WebSocket):
-        self.active.remove(ws)
-
-    async def broadcast(self, msg: dict):
-        dead = []
-        for ws in self.active:
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.active.remove(ws)
-
-ws_manager = ConnectionManager()
-
-@app.websocket("/ws/alerts")
-async def websocket_alerts(websocket: WebSocket):
-    await ws_manager.connect(websocket)
-    last_id = 0
-    import urllib.request as _ur
-    try:
-        while True:
-            try:
-                with _ur.urlopen(f"{PIPELINE_API}/alerts?limit=20", timeout=3) as r:
-                    data = json.loads(r.read())
-                alerts = data.get("alerts", [])
-                new_alerts = [a for a in alerts 
-                    if a.get("id", 0) > last_id 
-                    and a.get("comm", "") not in ("ghost-agent", "ghostit-agent-l", "")]
-                if new_alerts:
-                    last_id = max(a["id"] for a in new_alerts)
-                    for a in new_alerts:
-                        await websocket.send_json(a)
-            except Exception:
-                pass
-            await asyncio.sleep(5)
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
 
 if __name__ == "__main__":
     import uvicorn

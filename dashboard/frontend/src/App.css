@@ -153,3 +153,42 @@ body { background: #070b14; color: #c8d4e8; font-family: -apple-system, BlinkMac
 .compliance-status { font-size: 1rem; font-weight: 700; padding: 12px; border-radius: 6px; text-align: center; margin-bottom: 12px; }
 .compliance-status.ok { background: #0a2a0a; color: #44cc44; border: 1px solid #44cc4444; }
 .compliance-status.warn { background: #2a1a00; color: #ff8c00; border: 1px solid #ff8c0044; }
+
+/* ── Toast Notifications ── */
+.toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 8px; border-left: 4px solid; min-width: 320px; max-width: 440px; cursor: pointer; pointer-events: all; animation: toast-in 0.25s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+.toast-critical { background: #1a0505ee; border-color: #ff3b3b; box-shadow: 0 4px 20px #ff3b3b33; }
+.toast-high     { background: #1a0d00ee; border-color: #ff8c00; box-shadow: 0 4px 20px #ff8c0033; }
+.toast-medium   { background: #1a1500ee; border-color: #ffd700; }
+.toast-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
+.toast-body { flex: 1; min-width: 0; }
+.toast-title { font-size: 0.82rem; font-weight: 700; color: #fff; margin-bottom: 3px; }
+.toast-msg   { font-size: 0.75rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-close { color: #444; font-size: 1.1rem; flex-shrink: 0; }
+
+/* ── Live Ticker ── */
+.live-ticker { display: flex; align-items: center; gap: 12px; padding: 7px 24px; background: #050810; border-bottom: 1px solid #1e3a5f22; font-size: 0.73rem; overflow: hidden; flex-shrink: 0; }
+.ticker-label { background: #ff3b3b; color: #fff; font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; letter-spacing: 1px; flex-shrink: 0; animation: pulse 1s infinite; }
+.ticker-scroll { display: flex; overflow: hidden; white-space: nowrap; color: #555; }
+.ticker-item { margin-right: 8px; }
+.ticker-sep { color: #222; }
+
+/* ── SSE Status ── */
+.sse-badge { font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 4px; }
+.sse-badge.sse-live         { background: #0a2a0a; color: #44cc44; border: 1px solid #44cc4444; }
+.sse-badge.sse-reconnecting { background: #1a1400; color: #ffd700; border: 1px solid #ffd70044; }
+.sse-badge.sse-connecting   { background: #0d1421; color: #4af;    border: 1px solid #4af33; }
+.sse-badge.sse-error        { background: #1a0505; color: #ff3b3b; border: 1px solid #ff3b3b44; }
+.sse-indicator { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+.sse-indicator.sse-live         { color: #44cc44; background: #0a2a0a; }
+.sse-indicator.sse-reconnecting { color: #ffd700; background: #1a1400; }
+.sse-indicator.sse-connecting   { color: #4af; }
+.sse-indicator.sse-error        { color: #ff3b3b; }
+
+/* ── New alert flash ── */
+.alert-new { animation: flash-new 0.8s ease; }
+@keyframes flash-new { 0% { background: #0a2a0a; border-left-color: #44cc44; } 100% { background: #070b14; border-left-color: #ff3b3b; } }
+
+/* ── Nav badge ── */
+.nav-badge { background: #ff3b3b; color: #fff; font-size: 0.62rem; font-weight: 700; padding: 1px 5px; border-radius: 10px; margin-left: auto; min-width: 18px; text-align: center; }

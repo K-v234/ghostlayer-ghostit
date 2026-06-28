@@ -148,9 +148,33 @@ def _flush_loop():
                     log.error(f"Parquet flush error: {ex}")
             last_flush = time.monotonic()
 
+# Ghost IT trusted process paths — events from these are never scored
+# Identified by /proc/PID/cmdline at deploy time — survives restarts unlike PID-based exclusion
+GHOST_IT_PATHS = {
+    "/home/keerthivahanan/ghostlayer/detection/engine.py",
+    "/home/keerthivahanan/ghostlayer/pipeline/server_v2.py",
+    "/home/keerthivahanan/ghostlayer/ghostit-agent-linux-amd64",
+    "/home/keerthivahanan/ghostlayer/canary/canary_server.py",
+    "/home/keerthivahanan/ghostlayer/causal/engine.py",
+    "/home/keerthivahanan/ghostlayer/alert-engine/correlator.py",
+    "/home/keerthivahanan/ghostlayer/dashboard/api/server.py",
+}
+
+def _is_ghost_it_process(pid: int) -> bool:
+    """Check if pid belongs to a Ghost IT service by reading /proc/PID/cmdline."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read().decode("utf-8", errors="replace").replace("\x00", " ")
+        return any(p in cmdline for p in GHOST_IT_PATHS)
+    except Exception:
+        return False
+
 def enrich_batch(events):
     enriched = []
     for e in events:
+        # Layer 1 self-exclusion: Ghost IT own processes never scored (CrowdStrike pattern)
+        if _is_ghost_it_process(int(e.get("pid", 0) or 0)):
+            e = {**e, "score": 0, "alert": False, "reasons": [], "_ghost_internal": True}
         e["id"] = next_id()
         e["received_at"] = int(time.time())
         path = e.get("file") or e.get("path") or ""
