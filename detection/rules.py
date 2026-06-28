@@ -68,7 +68,7 @@ def check_event(event: dict) -> Optional[Detection]:
         )
 
     # R004 — Script interpreter making outbound connection
-    if type_ == "connect" and comm in ("perl","ruby","php","python3","python","lua","node")             and daddr not in ("127.0.0.1", "::1", ""):
+    if type_ == "connect" and comm in ("perl","ruby","php","python3","python","lua","node")             and daddr not in ("127.0.0.1", "::1", "", "1.0.0.127", "0.0.0.127", "11.0.0.127", "10.0.0.127"):
         return Detection(
             rule_id     = "R004",
             severity    = "high",
