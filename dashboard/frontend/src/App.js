@@ -146,7 +146,7 @@ function StatsCards({ pipelineStats, dashStats }) {
     { label: "Critical",       value: dashStats?.critical_incidents ?? "—",                 icon: "⚠️", color: dashStats?.critical_incidents > 0 ? "#ff3b3b" : "#44cc44" },
     { label: "Active Procs",   value: pipelineStats?.unique_procs?.toLocaleString() ?? "—", icon: "⚙️", color: "#4af" },
     { label: "Unique PIDs",    value: pipelineStats?.unique_pids?.toLocaleString() ?? "—",  icon: "🔢", color: "#4af" },
-    { label: "Last Event",     value: pipelineStats?.last_seen ? new Date(pipelineStats.last_seen * 1000).toLocaleTimeString("en-IN", {hour12:false}) : "—",       icon: "🕐", color: "#888" },
+    { label: "Last Event",     value: pipelineStats?.last_seen ? pipelineStats.last_seen.slice(11,19) : "—",       icon: "🕐", color: "#888" },
   ];
   return (
     <div className="stats-grid">
@@ -608,7 +608,7 @@ export default function App() {
           <div className="header-stats">
             <span className="hs">Events: <b>{pipelineStats?.total?.toLocaleString() ?? "—"}</b></span>
             <span className="hs">Open: <b style={{ color: dashStats?.open_incidents > 0 ? "#ff8c00" : "#44cc44" }}>{dashStats?.open_incidents ?? "—"}</b></span>
-            <span className="hs">Last: <b>{pipelineStats?.last_seen ? new Date(pipelineStats.last_seen * 1000).toLocaleTimeString("en-IN", {hour12:false}) : "—"}</b></span>
+            <span className="hs">Last: <b>{pipelineStats?.last_seen ? pipelineStats.last_seen.slice(11,19) : "—"}</b></span>
             <span className={`sse-indicator sse-${sseStatus}`}>
               {sseStatus === "live" ? "⚡ LIVE" : sseStatus === "reconnecting" ? "↻ RECONNECTING" : "… CONNECTING"}
             </span>

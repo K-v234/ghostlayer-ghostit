@@ -182,15 +182,13 @@ def get_alerts(limit: int = 100, session=Depends(_verify_session)):
 def get_incidents(limit: int = 50, session=Depends(_verify_session)):
     try:
         with _incident_conn() as con:
-            cutoff_str = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
-            rows = con.execute("""
+            rows = con.execute(f"""
                 SELECT incident_id, created_at, updated_at, host, severity,
                        confidence, tactic_id, tactic_name, technique_id,
                        technique_name, alert_count, sources, summary, closed
                 FROM incidents
-                WHERE updated_at >= TIMESTAMPTZ ?
-                ORDER BY updated_at DESC LIMIT ?
-            """, [cutoff_str, limit]).fetchall()
+                ORDER BY updated_at DESC LIMIT {int(limit)}
+            """).fetchall()
         incidents = [
             {"incident_id": r[0], "created_at": str(r[1]), "updated_at": str(r[2]),
              "host": r[3], "severity": r[4], "confidence": r[5],

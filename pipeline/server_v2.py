@@ -173,7 +173,10 @@ def enrich_batch(events):
     enriched = []
     for e in events:
         # Layer 1 self-exclusion: Ghost IT own processes never scored (CrowdStrike pattern)
-        if _is_ghost_it_process(int(e.get("pid", 0) or 0)):
+        # EXCEPT detection alerts forwarded by the detection engine — those must pass through
+        # Self-exclusion: only suppress raw eBPF telemetry from Ghost IT processes
+        # Detection alerts (type=detection) always pass through unchanged — filtered at display layer
+        if e.get("type") != "detection" and _is_ghost_it_process(int(e.get("pid", 0) or 0)):
             e = {**e, "score": 0, "alert": False, "reasons": [], "_ghost_internal": True}
         e["id"] = next_id()
         e["received_at"] = int(time.time())

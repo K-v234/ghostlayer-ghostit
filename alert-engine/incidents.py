@@ -12,7 +12,7 @@ import duckdb
 from weights import AlertSource, Severity
 from apt_window import now_utc
 
-DB_PATH = "ghostit_incidents.duckdb"
+DB_PATH = "/home/keerthivahanan/ghostlayer/data/ghostit_incidents.duckdb"
 
 @dataclass
 class RawAlert:

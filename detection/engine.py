@@ -262,6 +262,42 @@ class DetectionEngine:
                 pathlib.Path.home().joinpath("ghostlayer/data/chain_state.json").write_text(_json.dumps(state))
 
             send_to_pipeline(unique, self.p_host, self.p_port)
+            # C17 Alert Correlation — wire detections into incident DB
+            try:
+                if not hasattr(self, '_correlator'):
+                    import sys as _sys
+                    _sys.path.insert(0, os.path.expanduser("~/ghostlayer/alert-engine"))
+                    from correlator import AlertCorrelator
+                    self._correlator = AlertCorrelator()
+                from incidents import RawAlert
+                from weights import AlertSource, Severity
+                _source_map = {
+                    "R004": AlertSource.C14_TLS, "R003": AlertSource.C14_TLS,
+                    "R014": AlertSource.C14_TLS, "R012": AlertSource.C14_TLS,
+                    "R013": AlertSource.C14_TLS,
+                }
+                _sev_map = {
+                    "critical": Severity.CRITICAL,
+                    "high":     Severity.HIGH,
+                    "medium":   Severity.MEDIUM,
+                }
+                for d in unique:
+                    ev = d.evidence[0] if hasattr(d, "evidence") and d.evidence else {}
+                    raw = RawAlert.create(
+                        source=_source_map.get(d.rule_id, AlertSource.BEHAVIORAL_AI),
+                        severity=_sev_map.get(d.severity.lower(), Severity.MEDIUM),
+                        pid=ev.get("pid", 0),
+                        host="localhost",
+                        comm=ev.get("comm", d.rule_id),
+                        reason=d.title,
+                        event_type="detection",
+                        raw_json=json.dumps(ev),
+                    )
+                    iid = self._correlator.ingest(raw)
+                    if iid:
+                        log.info(f"C17 incident updated: {iid[:8]}")
+            except Exception as _c17_ex:
+                log.debug(f"C17 wire error: {_c17_ex}")
 
         return len(unique)
 
