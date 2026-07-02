@@ -270,22 +270,112 @@ async def grant_consent(request: Request, session=Depends(_verify_session)):
 
 @app.post("/api/causal/analyze")
 async def causal_analyze(request: Request, session=Depends(_verify_session)):
+    """
+    Local rule-based attack chain explainer — no API key needed.
+    Generates plain-English explanation for non-technical business owners.
+    """
     body = await request.json()
     chain = body.get("chain", {})
-    prompt = f"""You are a cybersecurity analyst for an Indian SME. Explain this attack chain to a non-technical business owner.
-Attack Chain: Severity={chain.get('severity','unknown').upper()}, Stage={chain.get('current_stage','unknown')}, Duration={chain.get('duration_s',0)}s, Events={chain.get('event_count',0)}, Tactics={', '.join(chain.get('tactics',[]))}, Techniques={', '.join(chain.get('techniques',[]))}, Escalating={'YES' if chain.get('escalating') else 'No'}
-3 short paragraphs: what happened, what attacker wanted, what to do now. Under 150 words."""
-    try:
-        payload = json.dumps({"model": "claude-sonnet-4-6", "max_tokens": 1000,
-            "messages": [{"role": "user", "content": prompt}]}).encode()
-        req = _ur.Request("https://api.anthropic.com/v1/messages", data=payload,
-            headers={"Content-Type": "application/json"}, method="POST")
-        with _ur.urlopen(req, timeout=30) as r:
-            data = json.loads(r.read())
-        return {"analysis": data.get("content", [{}])[0].get("text", "Unavailable")}
-    except Exception as ex:
-        log.error(f"Claude API error: {ex}")
-        return {"analysis": f"API error: {ex}"}
+
+    severity    = chain.get("severity", "medium").lower()
+    stage       = chain.get("current_stage", "unknown")
+    duration_s  = int(chain.get("duration_s", 0))
+    event_count = int(chain.get("event_count", 0))
+    tactics     = chain.get("tactics", [])
+    techniques  = chain.get("techniques", [])
+    escalating  = chain.get("escalating", False)
+    stages      = chain.get("stages", [])
+
+    # ── What happened ──────────────────────────────────────────────
+    tactic_stories = {
+        "Execution": "suspicious software or scripts were run on your computer without your knowledge",
+        "Command and Control": "your computer tried to contact an outside server, which attackers use to send instructions remotely",
+        "Credential Access": "someone attempted to guess or steal login passwords on your system",
+        "Impact": "files on your computer were encrypted or modified, which is what ransomware does",
+        "Reconnaissance": "someone was scanning or probing your system to look for weaknesses",
+        "Persistence": "an attempt was made to keep access to your computer even after a restart",
+        "Privilege Escalation": "something tried to gain higher-level control over your system",
+        "Lateral Movement": "an attacker tried to move from one computer to others in your network",
+        "Collection": "sensitive files or credentials were accessed or copied",
+        "Exfiltration": "data may have been sent outside your network",
+        "Defense Evasion": "something tried to hide its activity from security tools",
+    }
+
+    technique_details = {
+        "T1059": "using built-in system tools (like scripts or command lines) to run malicious code — this is hard to detect because it uses legitimate software",
+        "T1071": "hiding attacker communications inside normal web traffic so it looks like regular browsing",
+        "T1486": "encrypting your files so you cannot open them until a ransom is paid",
+        "T1110": "repeatedly trying different passwords to break into accounts",
+        "T1595": "actively scanning your network to find open doors or weaknesses",
+        "T1055": "injecting malicious code into a running program to avoid detection",
+    }
+
+    what_happened_parts = []
+    for t in tactics:
+        if t in tactic_stories:
+            what_happened_parts.append(tactic_stories[t])
+
+    duration_str = (f"{duration_s // 60} minutes {duration_s % 60} seconds"
+                    if duration_s >= 60 else f"{duration_s} seconds")
+
+    if what_happened_parts:
+        what_happened = f"Over the past {duration_str}, Ghost IT detected {event_count} suspicious events on your computer. Specifically, {' and '.join(what_happened_parts[:2])}."
+    else:
+        what_happened = f"Over the past {duration_str}, Ghost IT detected {event_count} suspicious events that suggest an attack may be in progress."
+
+    # ── What the attacker wanted ────────────────────────────────────
+    attack_goals = {
+        "Impact":           "The attacker's goal appears to be ransomware — encrypting your files and demanding payment to restore them. This can cause significant business disruption.",
+        "Command and Control": "The attacker was trying to establish a remote control channel — like a hidden backdoor — so they can send commands to your computer from anywhere in the world.",
+        "Credential Access": "The attacker was trying to steal your passwords so they could log into your accounts, potentially accessing sensitive business data or financial systems.",
+        "Execution":        "The attacker was trying to run their own software on your computer, which could be used to steal data, install malware, or cause damage.",
+        "Reconnaissance":   "The attacker was mapping out your network — like a burglar looking through windows before breaking in — to find the best way to attack.",
+        "Persistence":      "The attacker was trying to maintain long-term access to your system, so they can come back even if their initial attack is blocked.",
+    }
+
+    attacker_goal = "The attacker's exact goal is still being determined."
+    for t in tactics:
+        if t in attack_goals:
+            attacker_goal = attack_goals[t]
+            break
+
+    tech_detail = ""
+    for tech in techniques:
+        if tech in technique_details:
+            tech_detail = f" They used a technique called {tech} — {technique_details[tech]}."
+            break
+
+    attacker_wanted = attacker_goal + tech_detail
+
+    # ── What to do now ──────────────────────────────────────────────
+    if severity == "critical":
+        urgency = "🔴 CRITICAL — Act immediately."
+        action  = "Disconnect the affected computer from the internet and your office network right now. Do not turn it off. Contact your IT team or Ghost Layer Technologies immediately. Do not pay any ransom demands without consulting a cybersecurity expert first."
+    elif severity == "high":
+        urgency = "🟠 HIGH — Act within the next hour."
+        action  = "Restrict access to the affected computer. Check whether any sensitive files or accounts have been accessed. Alert your IT team and review recent login activity. Ghost IT has already blocked the suspicious activity but manual review is recommended."
+    else:
+        urgency = "🟡 MEDIUM — Review within today."
+        action  = "Review the incident details and check for any unusual activity on the affected computer. Ghost IT is monitoring the situation. No immediate action is required but keep an eye on your systems."
+
+    if escalating:
+        action = "⚠️ This attack is actively escalating — the situation is getting worse. " + action
+
+    # ── Build full analysis ─────────────────────────────────────────
+    stage_str = " → ".join(stages) if stages else stage
+    analysis = f"""**What happened on your computer:**
+{what_happened} The attack progressed through these stages: {stage_str}.
+
+**What the attacker was trying to do:**
+{attacker_wanted}
+
+**What you should do right now:**
+{urgency} {action}
+
+---
+*Ghost IT detected and logged this automatically. Chain ID: {chain.get('chain_id','?')[:8]} | Severity: {severity.upper()} | Duration: {duration_str}*"""
+
+    return {"analysis": analysis}
 
 if __name__ == "__main__":
     import uvicorn
