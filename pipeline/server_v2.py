@@ -127,7 +127,10 @@ def flush_to_parquet(events):
     if os.path.exists(path):
         existing = pq.read_table(path)
         table = pa.concat_tables([existing, table])
-    pq.write_table(table, path, compression="snappy", row_group_size=10_000)
+    # Atomic write: write to temp file then rename — prevents corruption on restart
+    tmp_path = path + ".tmp"
+    pq.write_table(table, tmp_path, compression="snappy", row_group_size=10_000)
+    os.replace(tmp_path, path)
 
 def _flush_loop():
     last_flush = time.monotonic()
