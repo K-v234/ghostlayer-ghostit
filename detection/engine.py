@@ -152,7 +152,6 @@ class DetectionEngine:
         if events:
             self._max_seen_id = data.get("max_id", self._max_seen_id)
         # Supplemental fetch: shell opens of /tmp and /dev/shm — high-value
-        # These get buried in main stream by python3 library loads
         for prefix in ("/tmp/", "/dev/shm/"):
             try:
                 tmp_data = api_get(
@@ -165,6 +164,16 @@ class DetectionEngine:
                             events.append(e)
             except Exception:
                 pass
+
+        # Supplemental fetch: auth_failure events (buried by eBPF flood)
+        try:
+            auth_data = api_get(f"{self.api}/events?limit=50&type=auth_failure")
+            for e in auth_data.get("events", []):
+                if e.get("id", 0) > self.max_id_at_start:
+                    if not any(x.get("id") == e.get("id") for x in events):
+                        events.append(e)
+        except Exception:
+            pass
         return events
     def _fetch_window(self) -> list[dict]:
         """Fetch recent events — only last 200 to avoid historical noise."""
@@ -272,6 +281,11 @@ class DetectionEngine:
                 from incidents import RawAlert
                 from weights import AlertSource, Severity
                 _source_map = {
+                    # C15 ransomware → Impact T1486
+                    "C15_RENAME_STORM": AlertSource.C15_RANSOMWARE,
+                    "C15_ENTROPY_SPIKE": AlertSource.C15_RANSOMWARE,
+                    "C15_EXT_CHANGE": AlertSource.C15_RANSOMWARE,
+                    "C15_WRITE_RATE": AlertSource.C15_RANSOMWARE,
                     # C2/network detections → C14_TLS (Command and Control)
                     "R003": AlertSource.C14_TLS,
                     "R004": AlertSource.C14_TLS,
@@ -309,7 +323,9 @@ class DetectionEngine:
                         continue
                     self._c17_dedup[dedup_key] = now_ts
                     raw = RawAlert.create(
-                        source=_source_map.get(d.rule_id, AlertSource.BEHAVIORAL_AI),
+                        source=_source_map.get(d.rule_id,
+                        AlertSource.C15_RANSOMWARE if d.rule_id.startswith("C15_") else
+                        AlertSource.BEHAVIORAL_AI),
                         severity=_sev_map.get(d.severity.lower(), Severity.MEDIUM),
                         pid=ev.get("pid", 0),
                         host="localhost",

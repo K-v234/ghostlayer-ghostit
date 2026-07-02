@@ -114,8 +114,8 @@ _REASON_MAP: list[tuple[str, MitreTag]] = [
     ("script from temp", T.CMD),
     ("outbound connection", T.TLS_C2),
     ("reverse shell", T.TLS_C2),
-    ("auth failure", T.RECON),
-    ("brute",        T.RECON),
+    ("auth failure", T.BRUTE_FORCE),
+    ("brute",        T.BRUTE_FORCE),
     ("ja3",          T.TLS_C2),
     ("ja4",          T.TLS_C2),
     ("injection",    T.PROCESS_INJECT),
@@ -151,6 +151,6 @@ def map_alert(
         AlertSource.C9_DIVERGENCE: T.PROCESS_INJECT,
         AlertSource.C9_EBPF:       T.CMD,  # Execution T1059
         AlertSource.C9_ETW:        T.CMD,
-        AlertSource.BEHAVIORAL_AI: T.RECON,
+        AlertSource.BEHAVIORAL_AI: T.BRUTE_FORCE,  # auth_failure events → Credential Access
     }
     return _SOURCE_DEFAULTS.get(source, T.UNKNOWN)
