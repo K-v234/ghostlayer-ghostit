@@ -24,3 +24,6 @@ agent/ebpf/src/*.bak
 agent/rust/src/*.bak
 models/
 data/parquet/
+data/ghostit_incidents.duckdb
+ghostit_incidents.duckdb
+data/audit_reports/
