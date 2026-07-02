@@ -82,7 +82,7 @@ function useSSEAlerts(token, onAlert) {
       es.addEventListener("high",     handle);
       es.addEventListener("sync",     () => setStatus("live"));
       es.addEventListener("auth_error", () => { es.close(); setStatus("error"); });
-      es.onerror = () => setStatus("reconnecting");
+      es.onerror = () => { setStatus("reconnecting"); setTimeout(() => { if (esRef.current === es) connect(); }, 3000); };
     };
     connect();
     return () => { if (esRef.current) esRef.current.close(); };
