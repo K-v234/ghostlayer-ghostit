@@ -224,6 +224,17 @@ class FileEntropyMonitor:
 
     def _send_event(self, filepath: str, entropy: float,
                     entropy_delta: float, is_ransom_ext: bool = False):
+        # Deduplication: same alert type within 30s = skip
+        import time as _time
+        if not hasattr(self, '_c15_dedup'):
+            self._c15_dedup = {}
+        now_ts = _time.time()
+        dedup_key = "ransom_ext" if is_ransom_ext else "high_entropy"
+        last_sent = self._c15_dedup.get(dedup_key, 0)
+        if now_ts - last_sent < 30:
+            return  # suppress duplicate
+        self._c15_dedup[dedup_key] = now_ts
+
         event = [{
             "ts":           int(time.time_ns()),
             "pid":          0, "ppid": 0, "uid": 0, "gid": 0,

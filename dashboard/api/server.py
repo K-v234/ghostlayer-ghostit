@@ -139,14 +139,30 @@ async def _sse_generator(last_id: int) -> AsyncGenerator[str, None]:
             [a for a in alerts if a.get("id", 0) > seen_id],
             key=lambda a: a.get("id", 0)
         )
-        for alert in new_alerts:
-            event_id = alert.get("id", 0)
+        # Industry-standard alert aggregation:
+        # Group by (type+comm) within this batch — send ONE alert with count
+        # All individual alerts still stored in backend for investigation
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for a in new_alerts:
+            fingerprint = f"{a.get('type','')}:{a.get('comm','')}"
+            groups[fingerprint].append(a)
+
+        for fingerprint, grouped in groups.items():
+            # Use highest-scored alert as representative
+            representative = max(grouped, key=lambda a: a.get("score", 0))
+            event_id = max(a.get("id", 0) for a in grouped)
             seen_id  = max(seen_id, event_id)
-            severity = ("critical" if alert.get("score", 0) >= 90
-                        else "high" if alert.get("score", 0) >= 70
+            # Add count to alert data
+            if len(grouped) > 1:
+                representative = dict(representative)
+                representative["count"] = len(grouped)
+                representative["suppressed"] = len(grouped) - 1
+            severity = ("critical" if representative.get("score", 0) >= 90
+                        else "high" if representative.get("score", 0) >= 70
                         else "alert")
-            yield f"id: {event_id}\nevent: {severity}\ndata: {json.dumps(alert)}\n\n"
-            log.info(f"SSE pushed id={event_id} score={alert.get('score')} comm={alert.get('comm')}")
+            yield f"id: {event_id}\nevent: {severity}\ndata: {json.dumps(representative)}\n\n"
+            log.info(f"SSE pushed id={event_id} score={representative.get('score')} comm={representative.get('comm')} count={len(grouped)}")
         await asyncio.sleep(POLL_INTERVAL)
 
 @app.get("/api/stream/alerts")

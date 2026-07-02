@@ -272,17 +272,42 @@ class DetectionEngine:
                 from incidents import RawAlert
                 from weights import AlertSource, Severity
                 _source_map = {
-                    "R004": AlertSource.C14_TLS, "R003": AlertSource.C14_TLS,
-                    "R014": AlertSource.C14_TLS, "R012": AlertSource.C14_TLS,
-                    "R013": AlertSource.C14_TLS,
+                    # C2/network detections → C14_TLS (Command and Control)
+                    "R003": AlertSource.C14_TLS,
+                    "R004": AlertSource.C14_TLS,
+                    "R007": AlertSource.C14_TLS,
+                    # LOLBin/execution detections → C9_EBPF (Execution)
+                    "R014": AlertSource.C9_EBPF,
+                    "R006": AlertSource.C9_EBPF,
+                    "R008": AlertSource.C9_EBPF,
+                    "R010": AlertSource.C9_EBPF,
+                    "R012": AlertSource.C9_EBPF,
+                    # Auth failures → BEHAVIORAL_AI (Credential Access)
+                    "R013": AlertSource.BEHAVIORAL_AI,
+                    # Canary/deception → DECEPTION (Collection)
+                    "R001": AlertSource.DECEPTION,
+                    "R002": AlertSource.DECEPTION,
                 }
                 _sev_map = {
                     "critical": Severity.CRITICAL,
                     "high":     Severity.HIGH,
                     "medium":   Severity.MEDIUM,
                 }
+                # Deduplication: same rule+comm within 60s = skip
+                import time as _time
+                if not hasattr(self, '_c17_dedup'):
+                    self._c17_dedup = {}
+                now_ts = _time.time()
+                # Clean old entries
+                self._c17_dedup = {k: v for k, v in self._c17_dedup.items() if now_ts - v < 60}
+
                 for d in unique:
                     ev = d.evidence[0] if hasattr(d, "evidence") and d.evidence else {}
+                    dedup_key = f"{d.rule_id}:{ev.get('comm', '')}"
+                    if dedup_key in self._c17_dedup:
+                        log.debug(f"C17 dedup: skipping {dedup_key} (within 60s)")
+                        continue
+                    self._c17_dedup[dedup_key] = now_ts
                     raw = RawAlert.create(
                         source=_source_map.get(d.rule_id, AlertSource.BEHAVIORAL_AI),
                         severity=_sev_map.get(d.severity.lower(), Severity.MEDIUM),

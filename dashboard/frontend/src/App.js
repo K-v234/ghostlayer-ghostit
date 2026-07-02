@@ -61,7 +61,7 @@ function ToastContainer({ toasts, onDismiss }) {
 function useSSEAlerts(token, onAlert) {
   const [status, setStatus] = useState("connecting");
   const esRef    = useRef(null);
-  const lastIdRef = useRef(0);
+  const lastIdRef = useRef(parseInt(sessionStorage.getItem("ghostit_last_alert_id") || "0", 10));
 
   useEffect(() => {
     if (!token) return;
@@ -73,7 +73,7 @@ function useSSEAlerts(token, onAlert) {
       const handle = (e) => {
         try {
           const alert = JSON.parse(e.data);
-          if (e.lastEventId) lastIdRef.current = parseInt(e.lastEventId, 10);
+          if (e.lastEventId) { lastIdRef.current = parseInt(e.lastEventId, 10); sessionStorage.setItem("ghostit_last_alert_id", lastIdRef.current); }
           onAlert(alert);
         } catch {}
       };
@@ -286,6 +286,7 @@ function AlertFeed({ token, sseStatus, liveAlerts }) {
               <div className="alert-info">
                 <div className="alert-comm">
                   {a.comm === "canary" ? "🪤 Canary" : a.comm}
+                  {a.count > 1 && <span style={{marginLeft:6,background:"#ff3b3b",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:700}}>×{a.count}</span>}
                   {a.daddr && a.daddr !== "local_process" && a.daddr !== "" &&
                     <span className="alert-pid"> · {a.daddr}</span>}
                 </div>
@@ -559,10 +560,27 @@ export default function App() {
   const dismissToast = useCallback(id => setToasts(t => t.filter(x => x.id !== id)), []);
 
   const handleSSEAlert = useCallback((alert) => {
+    // Industry-standard alert aggregation: group by fingerprint (type+comm)
+    // Same alert type from same process within session = increment count badge
+    const fingerprint = `${alert.type}:${alert.comm}`;
     setLiveAlerts(prev => {
       if (prev.find(x => x.id === alert.id)) return prev;
-      return [alert, ...prev].slice(0, 100);
+      // Check if same fingerprint exists within last 2 minutes
+      const now = Date.now();
+      const existing = prev.find(x =>
+        `${x.type}:${x.comm}` === fingerprint &&
+        (now - (x._ts || 0)) < 120000
+      );
+      if (existing) {
+        // Increment count on existing alert instead of adding new one
+        return prev.map(x => x.id === existing.id
+          ? { ...x, count: (x.count || 1) + 1, id: alert.id, _ts: now }
+          : x
+        );
+      }
+      return [{ ...alert, count: 1, _ts: now }, ...prev].slice(0, 100);
     });
+    // Only toast for first occurrence (count===1) to avoid notification spam
     if (alert.score >= 70) {
       const level = alert.score >= 90 ? "critical" : "high";
       addToast(

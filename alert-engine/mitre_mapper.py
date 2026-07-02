@@ -66,6 +66,9 @@ class T:
     # Initial Access
     PHISHING        = MitreTag("TA0001", "Initial Access",     "T1566", "Phishing",                        "T1566.001", "Spearphishing Attachment")
 
+    # Credential Access
+    BRUTE_FORCE     = MitreTag("TA0006", "Credential Access",  "T1110", "Brute Force",                     "T1110.001", "Password Guessing")
+
     # Unknown
     UNKNOWN         = MitreTag("TA0000", "Unknown",            "T0000", "Unknown Technique",               "",          "")
 
@@ -106,6 +109,13 @@ _REASON_MAP: list[tuple[str, MitreTag]] = [
     ("honeypot",     T.HONEYPOT_HIT),
     ("canary",       T.HONEYPOT_HIT),
     ("tls",          T.TLS_C2),
+    ("lolbin",       T.CMD),
+    ("shell reading", T.CMD),
+    ("script from temp", T.CMD),
+    ("outbound connection", T.TLS_C2),
+    ("reverse shell", T.TLS_C2),
+    ("auth failure", T.RECON),
+    ("brute",        T.RECON),
     ("ja3",          T.TLS_C2),
     ("ja4",          T.TLS_C2),
     ("injection",    T.PROCESS_INJECT),
@@ -139,7 +149,7 @@ def map_alert(
         AlertSource.C15_RANSOMWARE: T.RANSOMWARE,
         AlertSource.C14_TLS:       T.TLS_C2,
         AlertSource.C9_DIVERGENCE: T.PROCESS_INJECT,
-        AlertSource.C9_EBPF:       T.CMD,
+        AlertSource.C9_EBPF:       T.CMD,  # Execution T1059
         AlertSource.C9_ETW:        T.CMD,
         AlertSource.BEHAVIORAL_AI: T.RECON,
     }
