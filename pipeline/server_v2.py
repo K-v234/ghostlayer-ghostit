@@ -207,7 +207,7 @@ def get_duckdb():
         """)
     if LEGACY_DB and os.path.exists(LEGACY_DB):
         try:
-            conn.execute(f"ATTACH \"{LEGACY_DB}\" AS legacy (READ_ONLY)")
+            conn.execute(f"ATTACH '{LEGACY_DB}' AS legacy (READ_ONLY)")
             if has_parquet:
                 conn.execute("""
                     CREATE VIEW events_all AS
@@ -344,7 +344,7 @@ def stats_endpoint():
         "unique_procs": len(set(e.get("comm") for e in hot)),
         "hot_buffer": len(hot),
         "first_seen": None,
-        "last_seen": datetime.utcnow().isoformat(),
+        "last_seen": datetime.now(timezone.utc).astimezone().isoformat(),
     }
 
 @app.get("/events")
