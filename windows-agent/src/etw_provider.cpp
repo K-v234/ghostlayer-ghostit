@@ -247,34 +247,36 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_PROCESS_CREATE;
+    if (event_id == 2) { out.event_type = GHOST_EVT_PROCESS_EXIT; return true; }
+    if (event_id == 3) { out.event_type = GHOST_EVT_THREAD_CREATE; return true; }
 
-    // Try to get process name — property names vary by Windows version
-    // Try each variant, use first non-empty result
-    static const wchar_t* name_props[] = {
-        L"ImageName", L"ImageFileName", L"FullImageName", nullptr
-    };
-    for (int i = 0; name_props[i]; ++i) {
-        std::string img = wstr_to_utf8(read_property_wstr(record, name_props[i]));
-        if (!img.empty()) {
-            // img may be full path like \Device\HarddiskVolume3\Windows\svchost.exe
-            // Extract basename — find last backslash in full string
-            size_t pos = img.rfind('\\');
-            if (pos == std::string::npos) pos = img.rfind('/');
-            std::string base = (pos != std::string::npos) ? img.substr(pos+1) : img;
-            // Copy basename to comm (16 bytes), full path to path (256 bytes)
-            strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
-            out.comm[sizeof(out.comm)-1] = 0;
-            strncpy(out.path, img.c_str(), sizeof(out.path)-1);
-            out.path[sizeof(out.path)-1] = 0;
-            break;
+    // Use TdhGetEventInformation to decode event schema first
+    // This is required for TdhGetProperty to resolve property names correctly
+    ULONG schema_size = 0;
+    TdhGetEventInformation(record, 0, nullptr, nullptr, &schema_size);
+
+    if (schema_size > 0) {
+        std::vector<BYTE> schema_buf(schema_size);
+        auto* info = reinterpret_cast<TRACE_EVENT_INFO*>(schema_buf.data());
+        if (TdhGetEventInformation(record, 0, nullptr, info, &schema_size) == ERROR_SUCCESS) {
+            // Now TdhGetProperty will work correctly with the decoded schema
+            std::string img = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
+            if (!img.empty()) {
+                size_t pos = img.rfind('\\');
+                if (pos == std::string::npos) pos = img.rfind('/');
+                std::string base = (pos != std::string::npos) ? img.substr(pos+1) : img;
+                strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
+                out.comm[sizeof(out.comm)-1] = 0;
+                strncpy(out.path, img.c_str(), sizeof(out.path)-1);
+                out.path[sizeof(out.path)-1] = 0;
+            }
+            out.ppid = read_property_ulong(record, L"ParentProcessID");
         }
     }
+
     if (out.comm[0] == 0)
         snprintf(out.comm, sizeof(out.comm), "pid_%u", out.pid);
 
-    if (event_id == 2) out.event_type = GHOST_EVT_PROCESS_EXIT;
-    if (event_id == 3 || event_id == ETW_THREAD_CREATE)
-        out.event_type = GHOST_EVT_THREAD_CREATE;
     return true;
 }
 

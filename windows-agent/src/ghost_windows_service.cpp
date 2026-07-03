@@ -271,6 +271,31 @@ bool GhostWindowsService::initialize_components()
     // Send initial coverage report to pipeline
     pipeline_->send_event(coverage_->to_json());
 
+    // 3. Enable SeSecurityPrivilege — required for ETW-TI kernel events
+    // LocalSystem has this privilege but it's disabled by default
+    // This is the same approach used by Sysmon, CrowdStrike Falcon, Carbon Black
+    {
+        HANDLE token = nullptr;
+        if (OpenProcessToken(GetCurrentProcess(),
+                             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
+            TOKEN_PRIVILEGES tp{};
+            tp.PrivilegeCount = 1;
+            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+            if (LookupPrivilegeValueW(nullptr, L"SeSecurityPrivilege",
+                                      &tp.Privileges[0].Luid)) {
+                if (AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp),
+                                          nullptr, nullptr) &&
+                    GetLastError() == ERROR_SUCCESS) {
+                    std::cout << "[GhostIT SVC] SeSecurityPrivilege enabled\n";
+                } else {
+                    std::cout << "[GhostIT SVC] SeSecurityPrivilege: " 
+                              << GetLastError() << "\n";
+                }
+            }
+            CloseHandle(token);
+        }
+    }
+
     // 3. ETW provider — start kernel event session
     etw_ = std::make_unique<EtwProvider>(
         [this](const ghost_event_t& evt) { on_ghost_event(evt); });
