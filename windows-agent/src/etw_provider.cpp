@@ -79,8 +79,6 @@ void EtwProvider::stop()
     if (processing_thread_.joinable()) processing_thread_.join();
     if (watchdog_thread_.joinable())   watchdog_thread_.join();
 
-    std::cout << "[GhostIT ETW] Session stopped. Events captured: "
-              << events_captured_.load() << "\n";
 }
 
 bool EtwProvider::is_running() const { return running_.load(); }
@@ -104,17 +102,17 @@ bool EtwProvider::open_session()
     props->MaximumBuffers      = 64;
     props->LoggerNameOffset    = sizeof(EVENT_TRACE_PROPERTIES);
 
-    std::wstring wname(session_name_.begin(), session_name_.end());
+    session_wname_ = std::wstring(session_name_.begin(), session_name_.end());
     wcscpy_s(
         reinterpret_cast<wchar_t*>(props_buf.data() + props->LoggerNameOffset),
-        session_name_.size() + 1,
-        wname.c_str()
+        session_wname_.size() + 1,
+        session_wname_.c_str()
     );
 
-    ULONG status = StartTraceW(&session_handle_, wname.c_str(), props);
+    ULONG status = StartTraceW(&session_handle_, session_wname_.c_str(), props);
     if (status == ERROR_ALREADY_EXISTS) {
-        StopTraceW(session_handle_, wname.c_str(), props);
-        status = StartTraceW(&session_handle_, wname.c_str(), props);
+        StopTraceW(session_handle_, session_wname_.c_str(), props);
+        status = StartTraceW(&session_handle_, session_wname_.c_str(), props);
     }
     if (status != ERROR_SUCCESS) {
         std::cerr << "[GhostIT ETW] StartTrace failed: " << status << "\n";
@@ -125,12 +123,15 @@ bool EtwProvider::open_session()
     }
 
     EVENT_TRACE_LOGFILEW logfile{};
-    logfile.LoggerName          = const_cast<LPWSTR>(wname.c_str());
+    logfile.LoggerName          = const_cast<LPWSTR>(session_wname_.c_str());
     logfile.ProcessTraceMode    = PROCESS_TRACE_MODE_REAL_TIME |
                                   PROCESS_TRACE_MODE_EVENT_RECORD;
     logfile.EventRecordCallback = &EtwProvider::etw_event_callback;
 
     consumer_handle_ = OpenTraceW(&logfile);
+    if (consumer_handle_ == INVALID_PROCESSTRACE_HANDLE) {
+        return false;
+    }
     if (consumer_handle_ == INVALID_PROCESSTRACE_HANDLE) {
         std::cerr << "[GhostIT ETW] OpenTrace failed: " << GetLastError() << "\n";
         return false;
@@ -245,27 +246,36 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 {
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
+    out.event_type = GHOST_EVT_PROCESS_CREATE;
 
-    switch (event_id) {
-    case ETW_PROCESS_CREATE:
-        out.event_type = GHOST_EVT_PROCESS_CREATE;
-        out.ppid = read_property_ulong(record, L"ParentProcessID");
-        {
-            std::string img  = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
-            std::string args = wstr_to_utf8(read_property_wstr(record, L"CommandLine"));
-            strncpy(out.comm, img.c_str(),  sizeof(out.comm) - 1);
-            strncpy(out.path, args.c_str(), sizeof(out.comm) - 1);
+    // Try to get process name — property names vary by Windows version
+    // Try each variant, use first non-empty result
+    static const wchar_t* name_props[] = {
+        L"ImageName", L"ImageFileName", L"FullImageName", nullptr
+    };
+    for (int i = 0; name_props[i]; ++i) {
+        std::string img = wstr_to_utf8(read_property_wstr(record, name_props[i]));
+        if (!img.empty()) {
+            // img may be full path like \Device\HarddiskVolume3\Windows\svchost.exe
+            // Extract basename — find last backslash in full string
+            size_t pos = img.rfind('\\');
+            if (pos == std::string::npos) pos = img.rfind('/');
+            std::string base = (pos != std::string::npos) ? img.substr(pos+1) : img;
+            // Copy basename to comm (16 bytes), full path to path (256 bytes)
+            strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
+            out.comm[sizeof(out.comm)-1] = 0;
+            strncpy(out.path, img.c_str(), sizeof(out.path)-1);
+            out.path[sizeof(out.path)-1] = 0;
+            break;
         }
-        return true;
-    case ETW_PROCESS_TERMINATE:
-        out.event_type = GHOST_EVT_PROCESS_EXIT;
-        return true;
-    case ETW_THREAD_CREATE:
-        out.event_type = GHOST_EVT_THREAD_CREATE;
-        return true;
-    default:
-        return false;
     }
+    if (out.comm[0] == 0)
+        snprintf(out.comm, sizeof(out.comm), "pid_%u", out.pid);
+
+    if (event_id == 2) out.event_type = GHOST_EVT_PROCESS_EXIT;
+    if (event_id == 3 || event_id == ETW_THREAD_CREATE)
+        out.event_type = GHOST_EVT_THREAD_CREATE;
+    return true;
 }
 
 bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
@@ -276,11 +286,11 @@ bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
 
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_NET_CONNECT;
-    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"dport"));
-    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"sport"));
+    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"DestPort"));
+    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"SourcePort"));
     out.uid = static_cast<uint16_t>(read_property_ulong(record, L"AddressFamily"));
 
-    std::string da = wstr_to_utf8(read_property_wstr(record, L"daddr"));
+    std::string da = wstr_to_utf8(read_property_wstr(record, L"DestAddress"));
     strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.comm) - 1);
     return true;
 }
@@ -336,18 +346,19 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
     PROPERTY_DATA_DESCRIPTOR desc{};
     desc.PropertyName = reinterpret_cast<ULONGLONG>(prop_name);
     desc.ArrayIndex   = ULONG_MAX;
-
-    ULONG buf_size = 0;
-    TdhGetPropertySize(record, 0, nullptr, 1, &desc, &buf_size);
-    if (buf_size == 0) return L"";
-
+    // Use 1024-byte buffer first — TdhGetPropertySize fails on Win11 v3/v4 events
+    ULONG buf_size = 1024;
     std::vector<BYTE> buf(buf_size, 0);
-    if (TdhGetProperty(record, 0, nullptr, 1, &desc, buf_size, buf.data())
-        != ERROR_SUCCESS) return L"";
-
+    ULONG status = TdhGetProperty(record, 0, nullptr, 1, &desc, buf_size, buf.data());
+    if (status == ERROR_INSUFFICIENT_BUFFER) {
+        TdhGetPropertySize(record, 0, nullptr, 1, &desc, &buf_size);
+        if (buf_size == 0) return L"";
+        buf.assign(buf_size + 2, 0);
+        status = TdhGetProperty(record, 0, nullptr, 1, &desc, buf_size, buf.data());
+    }
+    if (status != ERROR_SUCCESS) return L"";
     return std::wstring(reinterpret_cast<wchar_t*>(buf.data()));
 }
-
 ULONG EtwProvider::read_property_ulong(PEVENT_RECORD record,
                                         const wchar_t* prop_name)
 {

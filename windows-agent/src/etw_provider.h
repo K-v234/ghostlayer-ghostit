@@ -95,6 +95,7 @@ private:
 
     EtwEventCallback   on_event_;
     std::string        session_name_;
+    std::wstring       session_wname_;  // persistent wide string for OpenTrace
 
     TRACEHANDLE        session_handle_;
     TRACEHANDLE        consumer_handle_;

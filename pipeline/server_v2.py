@@ -41,6 +41,16 @@ _flush_lock    = threading.Lock()
 FLUSH_INTERVAL = 300
 FLUSH_COUNT    = 50_000
 
+# Per-host hot buffers (CrowdStrike/SentinelOne pattern)
+# Each sensor gets its own ring buffer — prevents Linux eBPF flood
+# from crowding out Windows C9 events
+HOST_BUFFERS = {
+    "linux":   deque(maxlen=90_000),
+    "windows": deque(maxlen=10_000),
+}
+HOST_LOCK = threading.Lock()
+
+
 SCHEMA = pa.schema([
     pa.field("id",            pa.int64()),
     pa.field("ts",            pa.int64()),
@@ -183,6 +193,12 @@ def enrich_batch(events):
             e = {**e, "score": 0, "alert": False, "reasons": [], "_ghost_internal": True}
         e["id"] = next_id()
         e["received_at"] = int(time.time())
+        # Tag host based on agent field
+        agent = e.get("agent", "")
+        if agent == "windows-c9":
+            e["host"] = "windows"
+        else:
+            e["host"] = "linux"
         path = e.get("file") or e.get("path") or ""
         e["dpdp_pii_flag"] = any(p in path for p in (
             "/etc/passwd", "/etc/shadow", "id_rsa", ".ssh", "credential", "password"))
@@ -195,6 +211,12 @@ def insert_batch(events):
     enriched = enrich_batch(events)
     with HOT_LOCK:
         HOT_BUFFER.extend(enriched)
+    # Per-host buffers — separate ring per sensor (CrowdStrike pattern)
+    with HOST_LOCK:
+        for e in enriched:
+            host = e.get("host", "linux")
+            buf = HOST_BUFFERS.get(host, HOST_BUFFERS["linux"])
+            buf.append(e)
     with _flush_lock:
         _flush_pending.extend(enriched)
     return len(enriched)
@@ -257,6 +279,8 @@ def hot_to_result(events):
             "daddr": e.get("daddr") or _extract_daddr(e.get("path")),
             "dport": e.get("dport") or _extract_dport(e.get("path")),
             "dpdp_pii_flag": e.get("dpdp_pii_flag", False),
+            "host": e.get("host", "linux"),
+            "agent": e.get("agent", "linux-c1"),
         })
     return result
 
@@ -415,11 +439,13 @@ def top_processes_detailed(limit: int = Query(50, ge=1, le=200)):
         groups[(e.get("comm",""), e.get("pid",0))].append(e)
     processes = []
     for (comm, pid), evts in sorted(groups.items(), key=lambda x: -len(x[1]))[:limit]:
+        host = evts[0].get("host", "linux") if evts else "linux"
         processes.append({"comm": comm, "pid": pid, "total": len(evts),
             "alerts": sum(1 for e in evts if e.get("alert")),
             "max_score": max((e.get("score",0) for e in evts), default=0),
             "last_seen": max((e.get("received_at",0) for e in evts), default=0),
-            "event_types": len(set(e.get("type") or e.get("event_type") for e in evts))})
+            "event_types": len(set(e.get("type") or e.get("event_type") for e in evts)),
+            "host": host})
     return JSONResponse({"processes": processes})
 
 @app.get("/timeline")
@@ -458,6 +484,31 @@ def events_by_comm(comm: str, limit: int = Query(100, ge=1, le=500)):
     events.sort(key=lambda x: x.get("id", 0), reverse=True)
     events = events[:limit]
     return JSONResponse({"comm": comm, "total": len(events), "events": hot_to_result(events)})
+
+@app.get("/top/by-host")
+def top_by_host():
+    """Return top processes grouped by host using per-host ring buffers."""
+    from collections import defaultdict
+    result = {}
+    with HOST_LOCK:
+        host_snapshots = {h: list(buf) for h, buf in HOST_BUFFERS.items()}
+    for host, events in host_snapshots.items():
+        if not events:
+            continue
+        groups = defaultdict(list)
+        for e in events:
+            groups[(e.get("comm",""), e.get("pid",0))].append(e)
+        procs = []
+        for (comm, pid), evts in sorted(groups.items(), key=lambda x: -len(x[1]))[:25]:
+            procs.append({
+                "comm": comm, "pid": pid, "total": len(evts),
+                "alerts": sum(1 for e in evts if e.get("alert")),
+                "max_score": max((e.get("score",0) for e in evts), default=0),
+                "last_seen": max((e.get("received_at",0) for e in evts), default=0),
+                "host": host,
+            })
+        result[host] = procs
+    return result
 
 @app.get("/events/file-opens")
 def events_file_opens(

@@ -229,7 +229,8 @@ def get_endpoints(session=Depends(_verify_session)):
         return {"total": len(procs), "endpoints": [
             {"comm": p.get("comm"), "pid": p.get("pid", 0),
              "event_count": p.get("total", 0), "alerts": p.get("alerts", 0),
-             "max_score": p.get("max_score", 0), "last_seen": p.get("last_seen", "")}
+             "max_score": p.get("max_score", 0), "last_seen": p.get("last_seen", ""),
+             "host": p.get("host", "linux")}
             for p in procs
         ]}
     except Exception as ex:

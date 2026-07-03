@@ -386,7 +386,7 @@ function EndpointGrid({ token }) {
             return (
               <tr key={i} className={`ep-row risk-${risk}`}>
                 <td><span className={`risk-dot risk-${risk}`} /></td>
-                <td className="ep-comm">{e.comm}</td>
+                <td className="ep-comm">{e.host === "windows" ? "🪟 " : "🐧 "}{e.comm}</td>
                 <td className="ep-pid">{e.pid || "—"}</td>
                 <td>{(e.event_count || 0).toLocaleString()}</td>
                 <td style={{ color: e.alerts > 0 ? "#ff3b3b" : "#888" }}>{e.alerts || 0}</td>

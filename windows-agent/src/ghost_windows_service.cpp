@@ -200,6 +200,7 @@ bool GhostWindowsService::run_interactive()
 
 void WINAPI GhostWindowsService::service_main(DWORD /*argc*/, LPWSTR* /*argv*/)
 {
+    // Redirect stdout to log file for service debugging
     auto& svc = instance();
 
     svc.status_handle_ = RegisterServiceCtrlHandlerW(
