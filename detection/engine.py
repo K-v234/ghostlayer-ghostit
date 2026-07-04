@@ -102,6 +102,11 @@ class DetectionEngine:
         self.start_time  = time.time()
         self._ransomware = RansomwareEMADetector()
         self._lolbin     = LOLBinDetector()
+        # PID -> comm cache for process-chain detection (wmic->powershell etc).
+        # Populated as events flow through; capped by size since PIDs get
+        # reused and we only need recent-enough mappings.
+        self._pid_comm_cache: dict[int, str] = {}
+        self._PID_CACHE_MAX = 5000
         self._entropy_monitor = FileEntropyMonitor(pipeline_host=pipeline_host, pipeline_port=pipeline_port)
         self._entropy_monitor.start()
         log.info("C15 FileEntropyMonitor started")
@@ -190,9 +195,38 @@ class DetectionEngine:
         if new_events:
             log.debug(f"Analyzing {len(new_events)} new events")
             for e in new_events:
+                # Update PID->comm cache for process-chain resolution.
+                # Every event teaches the cache its own PID's current name,
+                # so future children can resolve this event's PID as a parent.
+                e_pid = e.get("pid", 0)
+                e_comm = e.get("comm", "")
+                if e_pid and e_comm:
+                    if len(self._pid_comm_cache) >= self._PID_CACHE_MAX:
+                        # Evict oldest ~10% when full (simple FIFO via dict order)
+                        for k in list(self._pid_comm_cache.keys())[:self._PID_CACHE_MAX // 10]:
+                            del self._pid_comm_cache[k]
+                    self._pid_comm_cache[e_pid] = e_comm
+
                 d = check_event(e)
                 if d:
                     detections.append(d)
+
+                # C14 process-chain: resolve this event's parent comm from
+                # the cache, then check if parent->child matches a known
+                # suspicious chain (wmic->powershell, word->powershell, etc).
+                e_ppid = e.get("ppid", 0)
+                parent_comm = self._pid_comm_cache.get(e_ppid, "")
+                if parent_comm and e_comm:
+                    chain_alert = self._lolbin.check_process_chain(parent_comm, e_comm)
+                    if chain_alert:
+                        detections.append(Detection(
+                            rule_id     = "C14_LOLBIN_CHAIN",
+                            severity    = chain_alert.severity,
+                            title       = f"Suspicious process chain: {chain_alert.technique}",
+                            description = f"{parent_comm} -> {e_comm} matches known attack pattern",
+                            confidence  = 85,
+                            evidence    = [e],
+                        ))
                 # C2: Behavioral AI
                 b = self._behavioral.process_event(e)
                 if b:
