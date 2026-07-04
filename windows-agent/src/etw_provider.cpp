@@ -219,6 +219,15 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         parsed = parse_ti_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS)) {
         USHORT eid = record->EventHeader.EventDescriptor.Id;
+        static USHORT seen_ids[32] = {0};
+        static int seen_count = 0;
+        bool already_seen = false;
+        for (int i = 0; i < seen_count; i++) if (seen_ids[i] == eid) { already_seen = true; break; }
+        if (!already_seen && seen_count < 32) {
+            seen_ids[seen_count++] = eid;
+            std::cerr << "[GHOST_DIAG_NEWID] First time seeing Kernel-Process eid=" << eid << "\n";
+            std::cerr.flush();
+        }
         if (eid == ETW_IMAGE_LOAD)
             parsed = parse_image_load(record, evt);
         else if (eid == 1 || eid == 2 || eid == 3)   // ProcessStart / ProcessStop / ThreadStart
@@ -289,8 +298,46 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_PROCESS_CREATE;
+    // CONFIRMED via live test: on this Windows 11 24H2 build, real
+    // process-creation events arrive as event_id 3, not 1. event_id 2
+    // remains process exit. Do not reassume this on other Windows
+    // versions without re-verifying — Kernel-Process event IDs are not
+    // guaranteed stable across builds.
+    // CONFIRMED via live test: on this Windows 11 24H2 build, real
+    // process-creation events arrive as event_id 3, not 1. event_id 2
+    // is process exit. Kernel-Process's standard schema does NOT expose
+    // CommandLine (confirmed empty on 11 real events) — command-line
+    // capture requires ETW-TI provider (currently failing, error 5) or
+    // PEB reading instead. Next step, not done tonight.
     if (event_id == 2) { out.event_type = GHOST_EVT_PROCESS_EXIT; return true; }
-    if (event_id == 3) { out.event_type = GHOST_EVT_THREAD_CREATE; return true; }
+
+    // One-time diagnostic: dump ProcessStart's real schema to check for
+    // a CommandLine property, before deciding how to capture it.
+    if (event_id == 1) {
+        ULONG diag_size = 0;
+        TdhGetEventInformation(record, 0, nullptr, nullptr, &diag_size);
+        if (diag_size > 0) {
+            std::vector<BYTE> diag_buf(diag_size);
+            auto* diag_info = reinterpret_cast<TRACE_EVENT_INFO*>(diag_buf.data());
+            if (TdhGetEventInformation(record, 0, nullptr, diag_info, &diag_size) == ERROR_SUCCESS) {
+                std::wcerr << L"[GHOST_DIAG_CMDLINE] EventId=1 properties: ";
+                for (ULONG i = 0; i < diag_info->TopLevelPropertyCount; i++) {
+                    auto* nm = reinterpret_cast<LPCWSTR>(diag_buf.data() + diag_info->EventPropertyInfoArray[i].NameOffset);
+                    std::wcerr << nm << L", ";
+                }
+                std::wcerr << L"\n";
+            }
+        }
+    }
+
+    // Temporary diagnostic: prove this code path executes at all, using
+    // comm (proven reliable in every test tonight) instead of path.
+    if (event_id == 1) {
+        std::string cmdline_probe = wstr_to_utf8(read_property_wstr(record, L"CommandLine"));
+        std::string marker = cmdline_probe.empty() ? "NOCMDLINE" : "HASCMDLINE";
+        strncpy(out.comm, marker.c_str(), sizeof(out.comm)-1);
+        out.comm[sizeof(out.comm)-1] = 0;
+    }
 
     // Permanent identity resolution: Win32 API first (stable across all
     // Windows builds), ETW ImageLoad schema as secondary source only when
