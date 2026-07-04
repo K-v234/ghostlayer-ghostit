@@ -14,6 +14,17 @@
 #include <evntrace.h>
 #include <evntcons.h>
 #include <tdh.h>
+
+// MinGW-w64's tdh.h omits TdhFormatProperty despite the symbol existing
+// in libtdh.a (confirmed via nm). Manual prototype matching the real
+// Windows SDK signature — __stdcall to match TdhGetProperty's convention
+// in this same header.
+extern "C" ULONG __stdcall TdhFormatProperty(
+    PTRACE_EVENT_INFO EventInfo, PEVENT_MAP_INFO MapInfo, ULONG PointerSize,
+    USHORT PropertyInType, USHORT PropertyOutType, USHORT PropertyLength,
+    USHORT UserDataLength, PBYTE UserData,
+    PULONG BufferSize, PWCHAR Buffer, PUSHORT UserDataConsumed);
+
 #include <wbemidl.h>
 
 #include <string>

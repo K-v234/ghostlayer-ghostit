@@ -345,21 +345,62 @@ bool EtwProvider::parse_image_load(PEVENT_RECORD record, ghost_event_t& out)
 std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
                                               const wchar_t* prop_name)
 {
-    PROPERTY_DATA_DESCRIPTOR desc{};
-    desc.PropertyName = reinterpret_cast<ULONGLONG>(prop_name);
-    desc.ArrayIndex   = ULONG_MAX;
-    // Use 1024-byte buffer first — TdhGetPropertySize fails on Win11 v3/v4 events
-    ULONG buf_size = 1024;
-    std::vector<BYTE> buf(buf_size, 0);
-    ULONG status = TdhGetProperty(record, 0, nullptr, 1, &desc, buf_size, buf.data());
-    if (status == ERROR_INSUFFICIENT_BUFFER) {
-        TdhGetPropertySize(record, 0, nullptr, 1, &desc, &buf_size);
-        if (buf_size == 0) return L"";
-        buf.assign(buf_size + 2, 0);
-        status = TdhGetProperty(record, 0, nullptr, 1, &desc, buf_size, buf.data());
+    // Schema-driven lookup — replaces static TdhGetProperty, which fails
+    // silently on Windows 11 v3/v4 event schemas. This resolves the
+    // property by name against whatever schema THIS event actually uses,
+    // so it works identically across Win10/Win11/Server versions.
+    ULONG info_size = 0;
+    ULONG s1 = TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
+    if (info_size == 0) {
+        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" schema_size_call status=" << s1 << L" size=0\n";
+        return L"";
     }
+
+    std::vector<BYTE> info_buf(info_size);
+    auto* info = reinterpret_cast<TRACE_EVENT_INFO*>(info_buf.data());
+    ULONG s2 = TdhGetEventInformation(record, 0, nullptr, info, &info_size);
+    if (s2 != ERROR_SUCCESS) {
+        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" schema_fetch status=" << s2 << L"\n";
+        return L"";
+    }
+
+    ULONG prop_index = ULONG_MAX;
+    std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" TopLevelPropertyCount=" << info->TopLevelPropertyCount << L" : ";
+    for (ULONG i = 0; i < info->TopLevelPropertyCount; i++) {
+        auto* name = reinterpret_cast<LPCWSTR>(
+            info_buf.data() + info->EventPropertyInfoArray[i].NameOffset);
+        std::wcerr << name << L", ";
+        if (_wcsicmp(name, prop_name) == 0) { prop_index = i; break; }
+    }
+    std::wcerr << L"\n";
+    if (prop_index == ULONG_MAX) {
+        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" NOT FOUND in schema\n";
+        return L"";
+    }
+
+    auto& prop = info->EventPropertyInfoArray[prop_index];
+    USHORT consumed = 0;
+    ULONG out_size = 0;
+    ULONG status = TdhFormatProperty(
+        info, nullptr, sizeof(PVOID),
+        prop.nonStructType.InType, prop.nonStructType.OutType,
+        static_cast<USHORT>(prop.length),
+        static_cast<USHORT>(record->UserDataLength),
+        reinterpret_cast<PBYTE>(record->UserData),
+        &out_size, nullptr, &consumed);
+    if (status != ERROR_INSUFFICIENT_BUFFER) return L"";
+
+    std::vector<WCHAR> out_buf(out_size / sizeof(WCHAR) + 1, 0);
+    status = TdhFormatProperty(
+        info, nullptr, sizeof(PVOID),
+        prop.nonStructType.InType, prop.nonStructType.OutType,
+        static_cast<USHORT>(prop.length),
+        static_cast<USHORT>(record->UserDataLength),
+        reinterpret_cast<PBYTE>(record->UserData),
+        &out_size, out_buf.data(), &consumed);
     if (status != ERROR_SUCCESS) return L"";
-    return std::wstring(reinterpret_cast<wchar_t*>(buf.data()));
+
+    return std::wstring(out_buf.data());
 }
 ULONG EtwProvider::read_property_ulong(PEVENT_RECORD record,
                                         const wchar_t* prop_name)
