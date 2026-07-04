@@ -65,6 +65,12 @@ private:
     // ── Service lifecycle ─────────────────────────────────────────────────
     bool  initialize_components();
     void  shutdown_components();
+
+public:
+    // Public wrapper so the static console Ctrl+C handler (which cannot
+    // access private members directly) can trigger clean shutdown.
+    void request_shutdown() { shutdown_components(); }
+private:
     void  run_main_loop();
 
     // ── Watchdog ──────────────────────────────────────────────────────────

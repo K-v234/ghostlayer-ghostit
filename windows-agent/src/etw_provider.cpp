@@ -311,24 +311,6 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     // PEB reading instead. Next step, not done tonight.
     if (event_id == 2) { out.event_type = GHOST_EVT_PROCESS_EXIT; return true; }
 
-    // One-time diagnostic: dump ProcessStart's real schema to check for
-    // a CommandLine property, before deciding how to capture it.
-    if (event_id == 1) {
-        ULONG diag_size = 0;
-        TdhGetEventInformation(record, 0, nullptr, nullptr, &diag_size);
-        if (diag_size > 0) {
-            std::vector<BYTE> diag_buf(diag_size);
-            auto* diag_info = reinterpret_cast<TRACE_EVENT_INFO*>(diag_buf.data());
-            if (TdhGetEventInformation(record, 0, nullptr, diag_info, &diag_size) == ERROR_SUCCESS) {
-                std::wcerr << L"[GHOST_DIAG_CMDLINE] EventId=1 properties: ";
-                for (ULONG i = 0; i < diag_info->TopLevelPropertyCount; i++) {
-                    auto* nm = reinterpret_cast<LPCWSTR>(diag_buf.data() + diag_info->EventPropertyInfoArray[i].NameOffset);
-                    std::wcerr << nm << L", ";
-                }
-                std::wcerr << L"\n";
-            }
-        }
-    }
 
     // Temporary diagnostic: prove this code path executes at all, using
     // comm (proven reliable in every test tonight) instead of path.

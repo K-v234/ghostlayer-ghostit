@@ -183,10 +183,31 @@ bool GhostWindowsService::run_as_service()
 
 // ── Run Interactively (debug mode) ───────────────────────────────────────────
 
+// Ctrl+C in interactive mode was bypassing shutdown_components() entirely —
+// Windows' default console handler terminates the process immediately on
+// CTRL_C_EVENT, skipping any code after the interrupt. This left ETW
+// sessions (GhostIT-ETW-*) running forever, accumulating across debug runs
+// and eventually degrading real event delivery once multiple sessions
+// competed for the same kernel provider (confirmed: up to 4 leaked
+// sessions observed, event delivery dropped to heartbeat-only).
+static BOOL WINAPI console_ctrl_handler(DWORD ctrl_type)
+{
+    if (ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_CLOSE_EVENT ||
+        ctrl_type == CTRL_BREAK_EVENT) {
+        std::cout << "\n[GhostIT SVC] Shutdown signal received — cleaning up ETW session...\n";
+        GhostWindowsService::instance().request_shutdown();
+        std::cout << "[GhostIT SVC] Clean shutdown complete.\n";
+        std::exit(0);
+    }
+    return TRUE;
+}
+
 bool GhostWindowsService::run_interactive()
 {
     std::cout << "[GhostIT SVC] Running in interactive (debug) mode.\n"
               << "[GhostIT SVC] Press Ctrl+C to stop.\n";
+
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
 
     if (!initialize_components()) return false;
 
@@ -275,21 +296,29 @@ bool GhostWindowsService::initialize_components()
     // LocalSystem has this privilege but it's disabled by default
     // This is the same approach used by Sysmon, CrowdStrike Falcon, Carbon Black
     {
+        // ETW-TI (Threat Intelligence provider) requires BOTH
+        // SeSecurityPrivilege AND SeDebugPrivilege to enable successfully.
+        // SeSecurityPrivilege alone was returning ERROR_ACCESS_DENIED (5)
+        // on every startup — confirmed via live testing. SeDebugPrivilege
+        // is required because TI's kernel callback needs to read memory
+        // across process boundaries for injection/APC detection.
         HANDLE token = nullptr;
         if (OpenProcessToken(GetCurrentProcess(),
                              TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
-            TOKEN_PRIVILEGES tp{};
-            tp.PrivilegeCount = 1;
-            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-            if (LookupPrivilegeValueW(nullptr, L"SeSecurityPrivilege",
-                                      &tp.Privileges[0].Luid)) {
-                if (AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp),
-                                          nullptr, nullptr) &&
-                    GetLastError() == ERROR_SUCCESS) {
-                    std::cout << "[GhostIT SVC] SeSecurityPrivilege enabled\n";
-                } else {
-                    std::cout << "[GhostIT SVC] SeSecurityPrivilege: " 
-                              << GetLastError() << "\n";
+            const wchar_t* priv_names[] = { L"SeSecurityPrivilege", L"SeDebugPrivilege" };
+            for (const wchar_t* priv_name : priv_names) {
+                TOKEN_PRIVILEGES tp{};
+                tp.PrivilegeCount = 1;
+                tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+                if (LookupPrivilegeValueW(nullptr, priv_name, &tp.Privileges[0].Luid)) {
+                    if (AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp),
+                                              nullptr, nullptr) &&
+                        GetLastError() == ERROR_SUCCESS) {
+                        std::wcout << L"[GhostIT SVC] " << priv_name << L" enabled\n";
+                    } else {
+                        std::wcout << L"[GhostIT SVC] " << priv_name << L": "
+                                  << GetLastError() << L"\n";
+                    }
                 }
             }
             CloseHandle(token);
