@@ -30,7 +30,7 @@
       "result": "DETECTED",
       "expected": "auth_failure_rate behavioral feature not wired to sshd failures",
       "severity": "MEDIUM_GAP",
-      "note": "auth_failure events via auth_log_tailer \u2014 sshd-session pattern fixed"
+      "note": "Resolved as side effect of S6 fix \u2014 sshd auth failures now captured via C1, R013 rule fires correctly with 70 confidence, human-readable alert generated."
     },
     {
       "id": 4,
