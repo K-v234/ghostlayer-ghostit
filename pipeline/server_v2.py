@@ -396,9 +396,25 @@ def list_events(
                          "events": hot_to_result(events)})
 
 @app.get("/events/since")
-def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)):
+def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+                  host: str = Query(None)):
+    # Reading from HOT_BUFFER alone drops Windows events: it's a single
+    # shared deque and high-volume Linux eBPF telemetry evicts them before
+    # they can be polled. Reading per-host buffers (already populated
+    # correctly at insert_batch time) and merging preserves both streams.
     with HOT_LOCK:
-        events = [e for e in HOT_BUFFER if e.get("id", 0) > since_id]
+        base = list(HOT_BUFFER)
+    with HOST_LOCK:
+        for buf in HOST_BUFFERS.values():
+            base.extend(buf)
+    seen_ids = set()
+    events = []
+    for e in base:
+        eid = e.get("id", 0)
+        if eid > since_id and eid not in seen_ids:
+            seen_ids.add(eid)
+            if host is None or e.get("host") == host:
+                events.append(e)
     events.sort(key=lambda x: x.get("id", 0))
     events = events[:limit]
     max_id = max((e.get("id", 0) for e in events), default=since_id)

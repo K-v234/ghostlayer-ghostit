@@ -25,6 +25,8 @@ extern "C" ULONG __stdcall TdhFormatProperty(
     USHORT UserDataLength, PBYTE UserData,
     PULONG BufferSize, PWCHAR Buffer, PUSHORT UserDataConsumed);
 
+
+
 #include <wbemidl.h>
 
 #include <string>
@@ -91,6 +93,13 @@ private:
     void dispatch_event(PEVENT_RECORD record);
 
     bool parse_process_event (PEVENT_RECORD record, ghost_event_t& out);
+
+    // Permanent process-identity resolution — Win32 API, not ETW payload
+    // parsing. Stable since Vista, immune to ETW schema/version differences
+    // across Windows builds. Replaces trying to parse ImageName out of
+    // ProcessStart's ambiguous, version-fragile schema.
+    std::wstring resolve_process_name(DWORD pid);
+    bool is_sane_process_name(const std::string& s);
     bool parse_network_event (PEVENT_RECORD record, ghost_event_t& out);
     bool parse_ti_event      (PEVENT_RECORD record, ghost_event_t& out);
     bool parse_image_load    (PEVENT_RECORD record, ghost_event_t& out);

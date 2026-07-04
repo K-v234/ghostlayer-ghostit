@@ -218,10 +218,14 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
     if (IsEqualGUID(prov, GHOST_ETW_TI_PROVIDER))
         parsed = parse_ti_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS)) {
-        if (record->EventHeader.EventDescriptor.Id == ETW_IMAGE_LOAD)
+        USHORT eid = record->EventHeader.EventDescriptor.Id;
+        if (eid == ETW_IMAGE_LOAD)
             parsed = parse_image_load(record, evt);
-        else
+        else if (eid == 1 || eid == 2 || eid == 3)   // ProcessStart / ProcessStop / ThreadStart
             parsed = parse_process_event(record, evt);
+        // else: ThreadSetPriority, WorkOnBehalf, and other Kernel-Process
+        // sub-events carry no ImageName and are intentionally dropped here
+        // rather than misrouted into the process-identity parser.
     } else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_NETWORK))
         parsed = parse_network_event(record, evt);
 
@@ -242,6 +246,44 @@ void EtwProvider::fill_common_fields(PEVENT_RECORD record, ghost_event_t& evt)
     evt.tid = record->EventHeader.ThreadId;
 }
 
+// Permanent fix: resolve process identity via Win32 API, not ETW payload
+// parsing. QueryFullProcessImageNameW has been stable since Vista and does
+// not depend on ETW provider schema versions, which change across Windows
+// builds and were the root cause of every parsing bug found tonight.
+std::wstring EtwProvider::resolve_process_name(DWORD pid)
+{
+    std::wstring result;
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc) return result; // process already exited — caller falls back
+
+    WCHAR path[MAX_PATH];
+    DWORD size = MAX_PATH;
+    if (QueryFullProcessImageNameW(hProc, 0, path, &size)) {
+        std::wstring full(path, size);
+        auto pos = full.find_last_of(L'\\');
+        result = (pos == std::wstring::npos) ? full : full.substr(pos + 1);
+    }
+    CloseHandle(hProc);
+    return result;
+}
+
+// Rejects garbled/binary data from ever reaching out.comm, regardless of
+// which parsing path produced it. This is what would have caught tonight's
+// single-garbled-character bug automatically, on any event type.
+bool EtwProvider::is_sane_process_name(const std::string& s)
+{
+    if (s.empty() || s.size() > 255) return false;
+    for (unsigned char c : s) {
+        // Real Windows filenames are ASCII-printable. Reject control
+        // characters AND anything outside standard printable ASCII —
+        // this catches UTF-8 replacement chars, private-use-area
+        // characters, and other garbage from misparsed binary data,
+        // none of which are valid in a real process image name.
+        if (c < 0x20 || c > 0x7E) return false;
+    }
+    return true;
+}
+
 bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 {
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
@@ -250,30 +292,55 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     if (event_id == 2) { out.event_type = GHOST_EVT_PROCESS_EXIT; return true; }
     if (event_id == 3) { out.event_type = GHOST_EVT_THREAD_CREATE; return true; }
 
-    // Use TdhGetEventInformation to decode event schema first
-    // This is required for TdhGetProperty to resolve property names correctly
-    ULONG schema_size = 0;
-    TdhGetEventInformation(record, 0, nullptr, nullptr, &schema_size);
+    // Permanent identity resolution: Win32 API first (stable across all
+    // Windows builds), ETW ImageLoad schema as secondary source only when
+    // the process has already exited before we could query it (race
+    // condition on fast-spawning processes). Never trust ProcessStart's
+    // own payload directly — its schema is version-fragile, which caused
+    // every bug fixed earlier tonight.
+    std::wstring name = resolve_process_name(out.pid);
+    std::string img_path;
 
-    if (schema_size > 0) {
-        std::vector<BYTE> schema_buf(schema_size);
-        auto* info = reinterpret_cast<TRACE_EVENT_INFO*>(schema_buf.data());
-        if (TdhGetEventInformation(record, 0, nullptr, info, &schema_size) == ERROR_SUCCESS) {
-            // Now TdhGetProperty will work correctly with the decoded schema
-            std::string img = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
-            if (!img.empty()) {
-                size_t pos = img.rfind('\\');
-                if (pos == std::string::npos) pos = img.rfind('/');
-                std::string base = (pos != std::string::npos) ? img.substr(pos+1) : img;
-                strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
-                out.comm[sizeof(out.comm)-1] = 0;
-                strncpy(out.path, img.c_str(), sizeof(out.path)-1);
-                out.path[sizeof(out.path)-1] = 0;
-            }
-            out.ppid = read_property_ulong(record, L"ParentProcessID");
+    if (!name.empty()) {
+        std::string base = wstr_to_utf8(name);
+        if (is_sane_process_name(base)) {
+            strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
+            out.comm[sizeof(out.comm)-1] = 0;
         }
     }
 
+    // Secondary source: ETW ImageLoad-style ImageName, only used if the
+    // Win32 lookup above found nothing (fast-exit race) AND this event's
+    // schema actually contains ImageName (won't for ThreadStart/ProcessStop).
+    if (out.comm[0] == 0) {
+        ULONG schema_size = 0;
+        TdhGetEventInformation(record, 0, nullptr, nullptr, &schema_size);
+        if (schema_size > 0) {
+            std::vector<BYTE> schema_buf(schema_size);
+            auto* info = reinterpret_cast<TRACE_EVENT_INFO*>(schema_buf.data());
+            if (TdhGetEventInformation(record, 0, nullptr, info, &schema_size) == ERROR_SUCCESS) {
+                std::string img = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
+                if (is_sane_process_name(img)) {
+                    size_t pos = img.rfind('\\');
+                    if (pos == std::string::npos) pos = img.rfind('/');
+                    std::string base = (pos != std::string::npos) ? img.substr(pos+1) : img;
+                    if (is_sane_process_name(base)) {
+                        strncpy(out.comm, base.c_str(), sizeof(out.comm)-1);
+                        out.comm[sizeof(out.comm)-1] = 0;
+                    }
+                    img_path = img;
+                }
+            }
+        }
+    }
+
+    if (!img_path.empty()) {
+        strncpy(out.path, img_path.c_str(), sizeof(out.path)-1);
+        out.path[sizeof(out.path)-1] = 0;
+    }
+
+    // Final fallback — only reached if BOTH sources above failed or
+    // produced garbage. Never ships an unvalidated string.
     if (out.comm[0] == 0)
         snprintf(out.comm, sizeof(out.comm), "pid_%u", out.pid);
 
