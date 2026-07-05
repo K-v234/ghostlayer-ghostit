@@ -1,18 +1,13 @@
 FROM python:3.11-slim
-
 WORKDIR /app
 COPY pipeline/ ./pipeline/
-COPY shared/ ./shared/
-
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
-    numpy pandas
-
+    numpy pandas pyarrow pytz
 EXPOSE 8000 9000
-
-CMD ["python3", "pipeline/server.py", \
+CMD ["python3", "pipeline/server_v2.py", \
      "--tcp-host", "0.0.0.0", \
      "--tcp-port", "9000", \
      "--http-host", "0.0.0.0", \
      "--http-port", "8000", \
-     "--db-path", "/data/events.db"]
+     "--parquet-dir", "/data/parquet"]

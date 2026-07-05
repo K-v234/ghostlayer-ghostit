@@ -546,7 +546,7 @@ def events_file_opens(
     events.sort(key=lambda x: x.get("id", 0), reverse=True)
     return {"events": hot_to_result(events[:limit]), "total": len(events)}
 
-CHAIN_STATE_FILE = pathlib.Path.home() / "ghostlayer/data/chain_state.json"
+CHAIN_STATE_FILE = pathlib.Path("/data/chain_state.json")
 
 @app.get("/chains")
 def get_chains():
