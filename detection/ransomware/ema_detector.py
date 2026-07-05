@@ -257,6 +257,8 @@ class RansomwareEMADetector:
             "mbr_write_ct":          float(self._mbr_writes),
         }
 
+        log.debug(f"C15 window features: {features}")
+
         # Reset window
         self._window_start    = now
         self._file_writes     = 0

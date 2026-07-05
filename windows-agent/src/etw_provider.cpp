@@ -491,6 +491,19 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
     }
     if (!in_user_data) return false;
 
+    // Strip the \Device\HarddiskVolumeN\ prefix — pure Windows-internal
+    // noise that provides zero detection value, and was silently truncating
+    // real paths before reaching the file extension (confirmed: a 67-char
+    // path like Downloads\report.docx.locked got cut at 56 bytes to
+    // "...Downloads\report", losing ".docx.locked" entirely — meaning
+    // extension-based ransomware detection never worked for any Windows
+    // path with this prefix, the entire session).
+    {
+        size_t pos = path_utf8.find("\\Users\\");
+        if (pos != std::string::npos) {
+            path_utf8 = path_utf8.substr(pos + 1); // keep leading backslash off "Users\..."
+        }
+    }
     strncpy(out.path, path_utf8.c_str(), sizeof(out.path)-1);
     out.path[sizeof(out.path)-1] = 0;
 
