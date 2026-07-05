@@ -395,6 +395,42 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     if (out.comm[0] == 0)
         snprintf(out.comm, sizeof(out.comm), "pid_%u", out.pid);
 
+    // Command-line capture via PEB reading (independent of ETW-TI, which
+    // is permanently blocked without Microsoft ELAM/PPL certification).
+    // Reuses out.path since it's otherwise empty for real ProcessStart
+    // events (img_path fallback above only fires when Win32 resolution
+    // fails). Only attempted for genuine ProcessStart (event_id==1) --
+    // ProcessStop has nothing meaningful to read.
+    if (event_id == 1 && out.path[0] == 0) {
+        std::wstring cmdline = read_process_cmdline(out.pid);
+        if (!cmdline.empty()) {
+            std::string cmdline_utf8 = wstr_to_utf8(cmdline);
+            // Strip the executable path, keep only arguments -- that's
+            // what LOLBin detection actually matches against (e.g.
+            // "-urlcache -f http://..." not the full certutil.exe path).
+            // Handles both quoted ("C:\path\app.exe" -args) and
+            // unquoted (C:\path\app.exe -args) command lines.
+            size_t args_start = std::string::npos;
+            if (!cmdline_utf8.empty() && cmdline_utf8[0] == '"') {
+                size_t close_quote = cmdline_utf8.find('"', 1);
+                if (close_quote != std::string::npos) args_start = close_quote + 1;
+            } else {
+                size_t space_pos = cmdline_utf8.find(" -");
+                if (space_pos == std::string::npos) space_pos = cmdline_utf8.find(" /");
+                if (space_pos != std::string::npos) args_start = space_pos;
+            }
+            std::string args_only = (args_start != std::string::npos && args_start < cmdline_utf8.size())
+                ? cmdline_utf8.substr(args_start)
+                : cmdline_utf8;
+            // Trim leading whitespace
+            size_t first_nonspace = args_only.find_first_not_of(' ');
+            if (first_nonspace != std::string::npos) args_only = args_only.substr(first_nonspace);
+
+            strncpy(out.path, args_only.c_str(), sizeof(out.path)-1);
+            out.path[sizeof(out.path)-1] = 0;
+        }
+    }
+
     return true;
 }
 
@@ -407,6 +443,90 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 // relatively expensive and a process's signature never changes during its
 // lifetime. Returns a GHOST_INTEGRITY_* value: SYSTEM/HIGH for verified
 // signed binaries, UNTRUSTED for unsigned or verification-failed processes.
+// Reads a running process's command line via PEB inspection --
+// OpenProcess -> NtQueryInformationProcess(ProcessBasicInformation) to
+// get the PEB address -> ReadProcessMemory the PEB -> ReadProcessMemory
+// the RTL_USER_PROCESS_PARAMETERS -> ReadProcessMemory the CommandLine
+// UNICODE_STRING buffer. Same technique Task Manager/Process Explorer
+// use. Independent of ETW-TI (permanently blocked, see known_issues.json)
+// and does not rely on Kernel-Process's schema (which never exposes
+// CommandLine, confirmed empty on real events).
+std::wstring EtwProvider::read_process_cmdline(DWORD pid)
+{
+    std::wstring result;
+
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (!hProc) return result;
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll) { CloseHandle(hProc); return result; }
+
+    using NtQueryInformationProcessFn = NTSTATUS(WINAPI*)(
+        HANDLE, ULONG, PVOID, ULONG, PULONG);
+    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessFn>(
+        GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    if (!NtQueryInformationProcess) { CloseHandle(hProc); return result; }
+
+    // PROCESS_BASIC_INFORMATION layout (undocumented but stable since XP)
+    struct PROCESS_BASIC_INFORMATION_LOCAL {
+        PVOID Reserved1;
+        PVOID PebBaseAddress;
+        PVOID Reserved2[2];
+        ULONG_PTR UniqueProcessId;
+        PVOID Reserved3;
+    };
+
+    PROCESS_BASIC_INFORMATION_LOCAL pbi{};
+    ULONG returnLength = 0;
+    NTSTATUS status = NtQueryInformationProcess(
+        hProc, 0 /* ProcessBasicInformation */, &pbi, sizeof(pbi), &returnLength);
+    if (status != 0 || !pbi.PebBaseAddress) { CloseHandle(hProc); return result; }
+
+    // Minimal PEB layout, only up to ProcessParameters (offset 0x20 on x64)
+    struct PEB_LOCAL {
+        BYTE Reserved1[2];
+        BYTE BeingDebugged;
+        BYTE Reserved2[1];
+        PVOID Reserved3[2];
+        PVOID Ldr;
+        PVOID ProcessParameters;
+    };
+
+    PEB_LOCAL peb{};
+    if (!ReadProcessMemory(hProc, pbi.PebBaseAddress, &peb, sizeof(peb), nullptr)) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    // Minimal RTL_USER_PROCESS_PARAMETERS layout, only up to CommandLine
+    struct RTL_USER_PROCESS_PARAMETERS_LOCAL {
+        BYTE Reserved1[16];
+        PVOID Reserved2[10];
+        UNICODE_STRING ImagePathName;
+        UNICODE_STRING CommandLine;
+    };
+
+    RTL_USER_PROCESS_PARAMETERS_LOCAL params{};
+    if (!ReadProcessMemory(hProc, peb.ProcessParameters, &params, sizeof(params), nullptr)) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    if (params.CommandLine.Length == 0 || !params.CommandLine.Buffer) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    std::vector<WCHAR> buf(params.CommandLine.Length / sizeof(WCHAR) + 1, 0);
+    if (ReadProcessMemory(hProc, params.CommandLine.Buffer, buf.data(),
+                          params.CommandLine.Length, nullptr)) {
+        result.assign(buf.data());
+    }
+
+    CloseHandle(hProc);
+    return result;
+}
+
 uint8_t EtwProvider::check_process_trust(DWORD pid)
 {
     {

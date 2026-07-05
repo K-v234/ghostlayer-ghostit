@@ -16,6 +16,7 @@
 #include <tdh.h>
 #include <wintrust.h>
 #include <softpub.h>
+#include <winternl.h>
 
 // MinGW-w64's tdh.h omits TdhFormatProperty despite the symbol existing
 // in libtdh.a (confirmed via nm). Manual prototype matching the real
@@ -132,6 +133,15 @@ private:
     static constexpr size_t PID_TRUST_CACHE_MAX = 2000;
 
     uint8_t check_process_trust(DWORD pid);
+
+    // Command-line capture via PEB reading. Kernel-Process's ProcessStart
+    // event does not expose CommandLine in its standard schema (confirmed
+    // empty on real events), and ETW-TI (which would provide it) is
+    // permanently blocked without Microsoft ELAM/PPL certification.
+    // PEB reading is the correct, independent alternative -- same
+    // technique used by Task Manager, Process Explorer, and most EDR
+    // agents to retrieve a running process's command line.
+    std::wstring read_process_cmdline(DWORD pid);
     std::mutex file_key_cache_mutex_;
     static constexpr size_t FILE_KEY_CACHE_MAX = 10000;
 

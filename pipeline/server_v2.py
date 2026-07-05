@@ -199,6 +199,15 @@ def enrich_batch(events):
         agent = e.get("agent", "")
         if agent == "windows-c9":
             e["host"] = "windows"
+            # Windows agent sends command-line arguments via the path
+            # field (out.path in ghost_event_t, reused since it's empty
+            # for real ProcessStart events) rather than a dedicated args
+            # field. Map it here so LOLBinDetector.check_event(), which
+            # reads event.get("args"), actually sees it.
+            if e.get("type") == "process_exec" and not e.get("args"):
+                candidate = e.get("path") or e.get("file")
+                if candidate:
+                    e["args"] = candidate
         else:
             e["host"] = "linux"
         path = e.get("file") or e.get("path") or ""
