@@ -237,12 +237,29 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         for (int i = 0; i < seen_count; i++) if (seen_ids[i] == eid) { already_seen = true; break; }
         if (!already_seen && seen_count < 32) {
             seen_ids[seen_count++] = eid;
-            std::cerr << "[GHOST_DIAG_NEWID] First time seeing Kernel-Process eid=" << eid << "\n";
+            std::string task_name = "?";
+            ULONG tsz = 0;
+            TdhGetEventInformation(record, 0, nullptr, nullptr, &tsz);
+            if (tsz > 0) {
+                std::vector<BYTE> tbuf(tsz);
+                auto* tinfo = reinterpret_cast<TRACE_EVENT_INFO*>(tbuf.data());
+                if (TdhGetEventInformation(record, 0, nullptr, tinfo, &tsz) == ERROR_SUCCESS && tinfo->TaskNameOffset) {
+                    auto* nm = reinterpret_cast<LPCWSTR>(tbuf.data() + tinfo->TaskNameOffset);
+                    task_name = wstr_to_utf8(nm);
+                }
+            }
+            std::cerr << "[GHOST_DIAG_NEWID] Kernel-Process eid=" << eid << " task=" << task_name << "\n";
             std::cerr.flush();
         }
         if (eid == ETW_IMAGE_LOAD)
             parsed = parse_image_load(record, evt);
-        else if (eid == 1 || eid == 2 || eid == 3)   // ProcessStart / ProcessStop / ThreadStart
+        else if (eid == 1 || eid == 2)   // ProcessStart / ProcessStop only.
+            // CORRECTED: schema-driven TaskName lookup confirmed eid==3 is
+            // ThreadStart, not ProcessStart as earlier (indirect) evidence
+            // suggested. ThreadStart fires on every new thread within any
+            // process — routing it here caused svchost.exe/System(PID 4)
+            // to show inflated "process_exec" counts (they spawn many
+            // internal threads, not many processes).
             parsed = parse_process_event(record, evt);
         // else: ThreadSetPriority, WorkOnBehalf, and other Kernel-Process
         // sub-events carry no ImageName and are intentionally dropped here
@@ -312,28 +329,19 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_PROCESS_CREATE;
-    // CONFIRMED via live test: on this Windows 11 24H2 build, real
-    // process-creation events arrive as event_id 3, not 1. event_id 2
-    // remains process exit. Do not reassume this on other Windows
-    // versions without re-verifying — Kernel-Process event IDs are not
-    // guaranteed stable across builds.
-    // CONFIRMED via live test: on this Windows 11 24H2 build, real
-    // process-creation events arrive as event_id 3, not 1. event_id 2
-    // is process exit. Kernel-Process's standard schema does NOT expose
-    // CommandLine (confirmed empty on 11 real events) — command-line
-    // capture requires ETW-TI provider (currently failing, error 5) or
-    // PEB reading instead. Next step, not done tonight.
+    // CORRECTED (schema-driven TaskName lookup, not indirect inference):
+    // event_id 1 = ProcessStart (real process creation)
+    // event_id 2 = ProcessStop (process exit)
+    // event_id 3 = ThreadStart (fires on EVERY new thread in ANY process --
+    //   NOT process creation; previously misrouted here, causing
+    //   svchost.exe/System(PID 4) to show wildly inflated "process_exec"
+    //   counts since they spawn many internal threads). Dispatch now only
+    //   routes eid==1||2 to this function -- eid==3 no longer reaches here.
+    // Kernel-Process's standard schema does NOT expose CommandLine
+    // (confirmed empty on real ProcessStart events) -- command-line
+    // capture requires ETW-TI (permanently blocked without Microsoft
+    // ELAM/PPL certification -- see known_issues.json) or PEB reading.
     if (event_id == 2) { out.event_type = GHOST_EVT_PROCESS_EXIT; return true; }
-
-
-    // Temporary diagnostic: prove this code path executes at all, using
-    // comm (proven reliable in every test tonight) instead of path.
-    if (event_id == 1) {
-        std::string cmdline_probe = wstr_to_utf8(read_property_wstr(record, L"CommandLine"));
-        std::string marker = cmdline_probe.empty() ? "NOCMDLINE" : "HASCMDLINE";
-        strncpy(out.comm, marker.c_str(), sizeof(out.comm)-1);
-        out.comm[sizeof(out.comm)-1] = 0;
-    }
 
     // Permanent identity resolution: Win32 API first (stable across all
     // Windows builds), ETW ImageLoad schema as secondary source only when
@@ -609,30 +617,24 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
     ULONG info_size = 0;
     ULONG s1 = TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
     if (info_size == 0) {
-        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" schema_size_call status=" << s1 << L" size=0\n";
-        return L"";
+        return L"";  // This event type's schema doesn't support size query — expected for many sub-events
     }
 
     std::vector<BYTE> info_buf(info_size);
     auto* info = reinterpret_cast<TRACE_EVENT_INFO*>(info_buf.data());
     ULONG s2 = TdhGetEventInformation(record, 0, nullptr, info, &info_size);
     if (s2 != ERROR_SUCCESS) {
-        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" schema_fetch status=" << s2 << L"\n";
         return L"";
     }
 
     ULONG prop_index = ULONG_MAX;
-    std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" TopLevelPropertyCount=" << info->TopLevelPropertyCount << L" : ";
     for (ULONG i = 0; i < info->TopLevelPropertyCount; i++) {
         auto* name = reinterpret_cast<LPCWSTR>(
             info_buf.data() + info->EventPropertyInfoArray[i].NameOffset);
-        std::wcerr << name << L", ";
         if (_wcsicmp(name, prop_name) == 0) { prop_index = i; break; }
     }
-    std::wcerr << L"\n";
     if (prop_index == ULONG_MAX) {
-        std::wcerr << L"[GHOST_DIAG] prop=" << prop_name << L" NOT FOUND in schema\n";
-        return L"";
+        return L"";  // Property doesn't exist in this event's schema — expected for many event types
     }
 
     // TdhFormatProperty gives no fixed byte offsets — properties must be

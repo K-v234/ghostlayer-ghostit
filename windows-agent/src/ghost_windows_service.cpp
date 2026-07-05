@@ -352,7 +352,18 @@ bool GhostWindowsService::initialize_components()
 
        pipeline_->send_event(j.dump());
         });
-    divergence_->start();
+    // Divergence detection compares ETW-observed events against eBPF-
+    // observed events to catch tampering (one layer silently disabled).
+    // Currently disabled: coverage_mode's "eBPF supported" flag reflects
+    // Windows version capability only (build >= WIN11_22H2_BUILD), not
+    // whether eBPF-for-Windows is actually installed and reporting —
+    // which it currently is not. Starting this detector against a
+    // permanently-absent data source guarantees every PID eventually
+    // alerts as "eBPF silent," which is structurally certain, not a
+    // real security signal. Re-enable once eBPF-for-Windows is genuinely
+    // deployed and verified to emit real events.
+    // divergence_->start();
+    std::cout << "[GhostIT DIVERGE] Detector disabled — no real eBPF-for-Windows deployment to compare against yet.\n";
 
     // 5. Start watchdog thread
     running_          = true;
