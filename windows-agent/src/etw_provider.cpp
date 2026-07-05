@@ -231,39 +231,17 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         parsed = parse_ti_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS)) {
         USHORT eid = record->EventHeader.EventDescriptor.Id;
-        static USHORT seen_ids[32] = {0};
-        static int seen_count = 0;
-        bool already_seen = false;
-        for (int i = 0; i < seen_count; i++) if (seen_ids[i] == eid) { already_seen = true; break; }
-        if (!already_seen && seen_count < 32) {
-            seen_ids[seen_count++] = eid;
-            std::string task_name = "?";
-            ULONG tsz = 0;
-            TdhGetEventInformation(record, 0, nullptr, nullptr, &tsz);
-            if (tsz > 0) {
-                std::vector<BYTE> tbuf(tsz);
-                auto* tinfo = reinterpret_cast<TRACE_EVENT_INFO*>(tbuf.data());
-                if (TdhGetEventInformation(record, 0, nullptr, tinfo, &tsz) == ERROR_SUCCESS && tinfo->TaskNameOffset) {
-                    auto* nm = reinterpret_cast<LPCWSTR>(tbuf.data() + tinfo->TaskNameOffset);
-                    task_name = wstr_to_utf8(nm);
-                }
-            }
-            std::cerr << "[GHOST_DIAG_NEWID] Kernel-Process eid=" << eid << " task=" << task_name << "\n";
-            std::cerr.flush();
-        }
+        // Event ID routing confirmed via schema-driven TaskName lookup
+        // (not assumption): eid==1=ProcessStart, eid==2=ProcessStop,
+        // eid==3=ThreadStart (fires on every new thread in any process --
+        // NOT process creation; deliberately excluded here since routing
+        // it caused svchost.exe/System to show inflated process_exec
+        // counts). Other sub-events (ThreadSetPriority, WorkOnBehalf,
+        // etc.) carry no process identity and are intentionally dropped.
         if (eid == ETW_IMAGE_LOAD)
             parsed = parse_image_load(record, evt);
-        else if (eid == 1 || eid == 2)   // ProcessStart / ProcessStop only.
-            // CORRECTED: schema-driven TaskName lookup confirmed eid==3 is
-            // ThreadStart, not ProcessStart as earlier (indirect) evidence
-            // suggested. ThreadStart fires on every new thread within any
-            // process — routing it here caused svchost.exe/System(PID 4)
-            // to show inflated "process_exec" counts (they spawn many
-            // internal threads, not many processes).
+        else if (eid == 1 || eid == 2)
             parsed = parse_process_event(record, evt);
-        // else: ThreadSetPriority, WorkOnBehalf, and other Kernel-Process
-        // sub-events carry no ImageName and are intentionally dropped here
-        // rather than misrouted into the process-identity parser.
     } else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_NETWORK))
         parsed = parse_network_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_FILE))
@@ -463,8 +441,8 @@ std::wstring EtwProvider::read_process_cmdline(DWORD pid)
 
     using NtQueryInformationProcessFn = NTSTATUS(WINAPI*)(
         HANDLE, ULONG, PVOID, ULONG, PULONG);
-    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessFn>(
-        GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    void* proc_addr = reinterpret_cast<void*>(GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessFn>(proc_addr);
     if (!NtQueryInformationProcess) { CloseHandle(hProc); return result; }
 
     // PROCESS_BASIC_INFORMATION layout (undocumented but stable since XP)
@@ -735,7 +713,7 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
     // property by name against whatever schema THIS event actually uses,
     // so it works identically across Win10/Win11/Server versions.
     ULONG info_size = 0;
-    ULONG s1 = TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
+    TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
     if (info_size == 0) {
         return L"";  // This event type's schema doesn't support size query — expected for many sub-events
     }
