@@ -90,6 +90,8 @@ target_link_libraries(GhostITAgent PRIVATE
     ws2_32       # Winsock2 — TCP pipeline forwarder
     kernel32     # Core Win32
     ntdll        # RtlGetVersion (coverage_mode)
+    wintrust     # WinVerifyTrust — Authenticode signature verification (C15 Tier 2 trust scoring)
+    crypt32      # Certificate chain validation, used internally by WinVerifyTrust
 )
 
 # ── Static linking — single .exe, no DLL dependencies on customer machine ─────

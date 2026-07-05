@@ -72,6 +72,7 @@ SCHEMA = pa.schema([
     pa.field("family",        pa.int32()),
     pa.field("clone_flags",   pa.int64()),
     pa.field("dpdp_pii_flag", pa.bool_()),
+    pa.field("integrity",     pa.int32()),
 ])
 
 def _extract_daddr(path):
@@ -133,6 +134,7 @@ def flush_to_parquet(events):
         rows["family"].append(int(e.get("family") or 0))
         rows["clone_flags"].append(int(e.get("clone_flags") or 0))
         rows["dpdp_pii_flag"].append(bool(e.get("dpdp_pii_flag", False)))
+        rows["integrity"].append(int(e.get("integrity") or 0))
     table = pa.table(rows, schema=SCHEMA)
     if os.path.exists(path):
         existing = pq.read_table(path)
@@ -281,6 +283,7 @@ def hot_to_result(events):
             "dpdp_pii_flag": e.get("dpdp_pii_flag", False),
             "host": e.get("host", "linux"),
             "agent": e.get("agent", "linux-c1"),
+            "integrity": e.get("integrity"),
         })
     return result
 

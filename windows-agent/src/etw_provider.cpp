@@ -166,7 +166,19 @@ bool EtwProvider::enable_providers()
         std::cerr << "[GhostIT ETW] Kernel-Network enable failed: " << status
                   << " (non-fatal)\n";
 
-    std::cout << "[GhostIT ETW] Providers enabled: TI + Kernel-Process + Kernel-Network\n";
+    // Kernel-File — required for real file write/delete detection (C15
+    // ransomware). Kernel-Process alone only ever surfaces file OPEN
+    // activity, confirmed via live testing — write/delete were never
+    // captured at all before this provider was added.
+    status = EnableTraceEx2(
+        session_handle_, &GHOST_ETW_KERNEL_FILE,
+        EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+        TRACE_LEVEL_VERBOSE, 0xFFFF, 0, 0, nullptr);
+    if (status != ERROR_SUCCESS)
+        std::cerr << "[GhostIT ETW] Kernel-File enable failed: " << status
+                  << " (non-fatal)\n";
+
+    std::cout << "[GhostIT ETW] Providers enabled: TI + Kernel-Process + Kernel-Network + Kernel-File\n";
     return true;
 }
 
@@ -237,6 +249,8 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         // rather than misrouted into the process-identity parser.
     } else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_NETWORK))
         parsed = parse_network_event(record, evt);
+    else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_FILE))
+        parsed = parse_file_event(record, evt);
 
     if (parsed) {
         evt.priority = GHOST_LAYER_ETW;
@@ -376,6 +390,140 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     return true;
 }
 
+// FileObject/FileKey -> path cache. NameCreate carries the real filename
+// and fires once per file handle; Write/SetDelete/Rename only carry the
+// opaque FileKey, so we cache on NameCreate and look up by FileKey later.
+// This matches how Sysmon/Procmon internally resolve Kernel-File identity.
+// C15 Tier 2: verify whether a process's executable is Authenticode-signed
+// by a trusted publisher. Result cached per-PID since signature checks are
+// relatively expensive and a process's signature never changes during its
+// lifetime. Returns a GHOST_INTEGRITY_* value: SYSTEM/HIGH for verified
+// signed binaries, UNTRUSTED for unsigned or verification-failed processes.
+uint8_t EtwProvider::check_process_trust(DWORD pid)
+{
+    {
+        std::lock_guard<std::mutex> lk(pid_trust_cache_mutex_);
+        auto it = pid_trust_cache_.find(pid);
+        if (it != pid_trust_cache_.end()) return it->second;
+    }
+
+    uint8_t trust = GHOST_INTEGRITY_UNTRUSTED;
+
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (hProc) {
+        WCHAR path[MAX_PATH];
+        DWORD size = MAX_PATH;
+        if (QueryFullProcessImageNameW(hProc, 0, path, &size)) {
+            WINTRUST_FILE_INFO fileInfo{};
+            fileInfo.cbStruct = sizeof(WINTRUST_FILE_INFO);
+            fileInfo.pcwszFilePath = path;
+
+            WINTRUST_DATA trustData{};
+            trustData.cbStruct = sizeof(WINTRUST_DATA);
+            trustData.dwUIChoice = WTD_UI_NONE;
+            trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+            trustData.dwUnionChoice = WTD_CHOICE_FILE;
+            trustData.pFile = &fileInfo;
+            trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+
+            GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            LONG status = WinVerifyTrust(nullptr, &action, &trustData);
+
+            trust = (status == ERROR_SUCCESS) ? GHOST_INTEGRITY_HIGH : GHOST_INTEGRITY_UNTRUSTED;
+
+            // Always close the trust data state, regardless of result
+            trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+            WinVerifyTrust(nullptr, &action, &trustData);
+        }
+        CloseHandle(hProc);
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(pid_trust_cache_mutex_);
+        if (pid_trust_cache_.size() >= PID_TRUST_CACHE_MAX) {
+            pid_trust_cache_.erase(pid_trust_cache_.begin());
+        }
+        pid_trust_cache_[pid] = trust;
+    }
+    return trust;
+}
+
+bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
+{
+    USHORT eid = record->EventHeader.EventDescriptor.Id;
+    fill_common_fields(record, out);
+
+    ULONGLONG file_key = read_property_ulong64(record, L"FileKey");
+
+    if (eid == 10) {  // NameCreate — carries the real filename
+        std::wstring name = read_property_wstr(record, L"FileName");
+        if (!name.empty()) {
+            std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+            if (file_key_cache_.size() >= FILE_KEY_CACHE_MAX) {
+                file_key_cache_.erase(file_key_cache_.begin());
+            }
+            file_key_cache_[file_key] = name;
+        }
+        return false;  // NameCreate itself isn't a security-relevant event
+    }
+
+    std::wstring path;
+    {
+        std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+        auto it = file_key_cache_.find(file_key);
+        if (it != file_key_cache_.end()) path = it->second;
+    }
+
+    if (path.empty()) return false;  // Can't attribute this event to a file — drop it
+
+    std::string path_utf8 = wstr_to_utf8(path);
+
+    // Tier 1: scope to user-data directories — where ransomware actually
+    // operates. Not a noise blocklist (which loses to every new app
+    // forever) — a relevance filter based on what ransomware targets.
+    static const char* USER_DATA_MARKERS[] = {
+        "\\Documents\\", "\\Desktop\\", "\\Downloads\\",
+        "\\Pictures\\", "\\Videos\\", "\\Music\\", "\\OneDrive\\",
+    };
+    bool in_user_data = false;
+    for (const char* marker : USER_DATA_MARKERS) {
+        if (path_utf8.find(marker) != std::string::npos) { in_user_data = true; break; }
+    }
+    if (!in_user_data) return false;
+
+    strncpy(out.path, path_utf8.c_str(), sizeof(out.path)-1);
+    out.path[sizeof(out.path)-1] = 0;
+
+    // Tier 2: tag with the writing process's Authenticode trust level.
+    // Signed, trusted-publisher processes get reduced downstream scoring
+    // weight even within user-data directories, without needing to know
+    // their name in advance — mirrors how CrowdStrike/SentinelOne reduce
+    // false positives from legitimate high-volume writers.
+    out.integrity = check_process_trust(out.pid);
+
+    if (eid == 16) {
+        out.event_type = GHOST_EVT_FILE_WRITE;
+        return true;
+    }
+    if (eid == 18 || eid == 11) {
+        out.event_type = GHOST_EVT_FILE_DELETE;
+        return true;
+    }
+    if (eid == 19 || eid == 17) {
+        // eid=17 (SetInformation) is included here because PowerShell's
+        // Rename-Item was observed to never generate a raw eid=19 (Rename)
+        // event — Windows file-rename operations from userspace commonly
+        // route through SetInformation instead, depending on how the
+        // renaming application issues the underlying NtSetInformationFile
+        // call. Treating both as FILE_RENAME until we can confirm this is
+        // always safe (SetInformation can also cover non-rename metadata
+        // changes, so this may need narrowing later if it proves noisy).
+        out.event_type = GHOST_EVT_FILE_RENAME;
+        return true;
+    }
+    return false;  // Other Kernel-File sub-events (Read, Cleanup, etc.) not forwarded
+}
+
 bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
 {
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
@@ -474,6 +622,46 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
         return L"";
     }
 
+    // TdhFormatProperty gives no fixed byte offsets — properties must be
+    // walked sequentially from the start of UserData, accumulating each
+    // preceding property's consumed byte count, to find where our target
+    // property actually begins. Previously this always read from byte 0
+    // regardless of property index, which silently corrupted any property
+    // that wasn't first in the schema (confirmed: FileName, which follows
+    // FileKey, showed garbage-prefixed strings as a direct result).
+    PBYTE user_data = reinterpret_cast<PBYTE>(record->UserData);
+    USHORT remaining_len = static_cast<USHORT>(record->UserDataLength);
+
+    for (ULONG i = 0; i < prop_index; i++) {
+        auto& skip_prop = info->EventPropertyInfoArray[i];
+        USHORT skip_consumed = 0;
+        ULONG skip_out_size = 0;
+        // TdhFormatProperty's "consumed" output is unreliable on the
+        // size-query call (nullptr buffer) — confirmed live: it silently
+        // returns 0, so the skip never actually advanced past FileKey,
+        // and FileName reads picked up FileKey's raw 8 bytes as garbage
+        // wide-char prefix. Must do the FULL two-call pattern (query size,
+        // then actually format into a real buffer) even when skipping,
+        // since only the second call populates consumed correctly.
+        TdhFormatProperty(
+            info, nullptr, sizeof(PVOID),
+            skip_prop.nonStructType.InType, skip_prop.nonStructType.OutType,
+            static_cast<USHORT>(skip_prop.length),
+            remaining_len, user_data,
+            &skip_out_size, nullptr, &skip_consumed);
+
+        std::vector<WCHAR> skip_buf(skip_out_size / sizeof(WCHAR) + 1, 0);
+        TdhFormatProperty(
+            info, nullptr, sizeof(PVOID),
+            skip_prop.nonStructType.InType, skip_prop.nonStructType.OutType,
+            static_cast<USHORT>(skip_prop.length),
+            remaining_len, user_data,
+            &skip_out_size, skip_buf.data(), &skip_consumed);
+
+        user_data      += skip_consumed;
+        remaining_len  -= skip_consumed;
+    }
+
     auto& prop = info->EventPropertyInfoArray[prop_index];
     USHORT consumed = 0;
     ULONG out_size = 0;
@@ -481,8 +669,7 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
         info, nullptr, sizeof(PVOID),
         prop.nonStructType.InType, prop.nonStructType.OutType,
         static_cast<USHORT>(prop.length),
-        static_cast<USHORT>(record->UserDataLength),
-        reinterpret_cast<PBYTE>(record->UserData),
+        remaining_len, user_data,
         &out_size, nullptr, &consumed);
     if (status != ERROR_INSUFFICIENT_BUFFER) return L"";
 
@@ -491,8 +678,7 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
         info, nullptr, sizeof(PVOID),
         prop.nonStructType.InType, prop.nonStructType.OutType,
         static_cast<USHORT>(prop.length),
-        static_cast<USHORT>(record->UserDataLength),
-        reinterpret_cast<PBYTE>(record->UserData),
+        remaining_len, user_data,
         &out_size, out_buf.data(), &consumed);
     if (status != ERROR_SUCCESS) return L"";
 
@@ -507,6 +693,24 @@ ULONG EtwProvider::read_property_ulong(PEVENT_RECORD record,
 
     ULONG value    = 0;
     ULONG buf_size = sizeof(ULONG);
+    TdhGetProperty(record, 0, nullptr, 1, &desc,
+                   buf_size, reinterpret_cast<PBYTE>(&value));
+    return value;
+}
+
+ULONGLONG EtwProvider::read_property_ulong64(PEVENT_RECORD record,
+                                              const wchar_t* prop_name)
+{
+    // FileKey and similar Kernel-File properties are 64-bit (pointer-sized
+    // kernel object references). Using the 32-bit read_property_ulong here
+    // would silently truncate them, causing different files to collide to
+    // the same cache key — wrong, not crashing, which is worse.
+    PROPERTY_DATA_DESCRIPTOR desc{};
+    desc.PropertyName = reinterpret_cast<ULONGLONG>(prop_name);
+    desc.ArrayIndex   = ULONG_MAX;
+
+    ULONGLONG value = 0;
+    ULONG buf_size  = sizeof(ULONGLONG);
     TdhGetProperty(record, 0, nullptr, 1, &desc,
                    buf_size, reinterpret_cast<PBYTE>(&value));
     return value;

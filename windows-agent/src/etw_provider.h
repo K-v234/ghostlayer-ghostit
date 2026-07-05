@@ -14,6 +14,8 @@
 #include <evntrace.h>
 #include <evntcons.h>
 #include <tdh.h>
+#include <wintrust.h>
+#include <softpub.h>
 
 // MinGW-w64's tdh.h omits TdhFormatProperty despite the symbol existing
 // in libtdh.a (confirmed via nm). Manual prototype matching the real
@@ -52,6 +54,15 @@ static const GUID GHOST_ETW_KERNEL_PROCESS = {
 static const GUID GHOST_ETW_KERNEL_NETWORK = {
     0x7DD42A49, 0x5329, 0x4832,
     { 0x8D, 0xFD, 0x43, 0xD9, 0x79, 0x15, 0x3A, 0x88 }
+};
+
+// Microsoft-Windows-Kernel-File — needed for real file write/delete events.
+// Kernel-Process only surfaces file OPEN activity; write/delete require
+// this separate provider. Missing until now — C15 ransomware detection
+// received zero real Windows file-modification signal as a result.
+static const GUID GHOST_ETW_KERNEL_FILE = {
+    0xEDD08927, 0x9CC4, 0x4E65,
+    { 0xB9, 0x70, 0xC2, 0x56, 0x0F, 0xB5, 0xC2, 0x89 }
 };
 
 static constexpr USHORT ETW_PROCESS_CREATE     = 1;
@@ -100,12 +111,38 @@ private:
     // ProcessStart's ambiguous, version-fragile schema.
     std::wstring resolve_process_name(DWORD pid);
     bool is_sane_process_name(const std::string& s);
+
+    // FileObject/FileKey -> real path cache. Kernel-File's Write/SetDelete/
+    // Rename events only carry an opaque FileKey, never the filename
+    // directly — the filename only appears in NameCreate, which fires when
+    // a file handle is first opened. This mirrors how Sysmon/Procmon-style
+    // tools resolve file identity: cache on NameCreate, look up on
+    // Write/Delete/Rename by the same FileKey.
+    std::unordered_map<ULONGLONG, std::wstring> file_key_cache_;
+
+    // C15 Tier 2 noise reduction: process trust scoring via Authenticode
+    // signature verification. Signed, trusted-publisher processes (Google,
+    // Microsoft, etc.) writing to user-data directories get reduced
+    // ransomware-relevance weight; unsigned/unknown processes get full
+    // weight. This mirrors how CrowdStrike/SentinelOne reduce false
+    // positives from legitimate high-volume writers (browsers, sync
+    // clients) without maintaining an ever-growing app-name blocklist.
+    std::unordered_map<DWORD, uint8_t> pid_trust_cache_;
+    std::mutex pid_trust_cache_mutex_;
+    static constexpr size_t PID_TRUST_CACHE_MAX = 2000;
+
+    uint8_t check_process_trust(DWORD pid);
+    std::mutex file_key_cache_mutex_;
+    static constexpr size_t FILE_KEY_CACHE_MAX = 10000;
+
+    bool parse_file_event(PEVENT_RECORD record, ghost_event_t& out);
     bool parse_network_event (PEVENT_RECORD record, ghost_event_t& out);
     bool parse_ti_event      (PEVENT_RECORD record, ghost_event_t& out);
     bool parse_image_load    (PEVENT_RECORD record, ghost_event_t& out);
 
     std::wstring read_property_wstr  (PEVENT_RECORD record, const wchar_t* prop_name);
     ULONG        read_property_ulong (PEVENT_RECORD record, const wchar_t* prop_name);
+    ULONGLONG    read_property_ulong64(PEVENT_RECORD record, const wchar_t* prop_name);
 
     static std::string wstr_to_utf8(const std::wstring& ws);
     void fill_common_fields(PEVENT_RECORD record, ghost_event_t& evt);

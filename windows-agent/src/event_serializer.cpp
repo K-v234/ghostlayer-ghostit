@@ -21,6 +21,7 @@ static const char* event_type_str(uint8_t t) {
     case GHOST_EVT_FILE_OPEN:       return "file_open";
     case GHOST_EVT_FILE_WRITE:      return "file_write";
     case GHOST_EVT_FILE_DELETE:     return "file_delete";
+    case GHOST_EVT_FILE_RENAME:      return "file_rename";
     case GHOST_EVT_NET_CONNECT:     return "net_connect";
     case GHOST_EVT_NET_LISTEN:      return "net_listen";
     case GHOST_EVT_THREAD_CREATE:   return "thread_create";

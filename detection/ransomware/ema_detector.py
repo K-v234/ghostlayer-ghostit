@@ -167,6 +167,24 @@ class RansomwareEMADetector:
         return None  # Window-based — alerts fire on flush
 
     @staticmethod
+    def _trust_weight(event: dict) -> float:
+        """
+        C15 Tier 2: weight ransomware-extension signals by process trust.
+        Windows-only field (integrity comes from Authenticode verification
+        in the C9 agent). Signed, trusted-publisher processes (integrity
+        HIGH=3 or SYSTEM=4) get reduced weight — mirrors how CrowdStrike/
+        SentinelOne reduce false positives from legitimate signed writers
+        without needing to know the app by name. Unsigned/untrusted
+        processes (integrity 0/1/2, or Linux events with no integrity
+        field at all) get full weight — no change to existing Linux
+        detection behavior.
+        """
+        integrity = event.get("integrity")
+        if integrity is not None and integrity >= 3:
+            return 0.3  # trusted publisher — reduced but non-zero signal
+        return 1.0  # untrusted, unknown, or Linux (no integrity field)
+
+    @staticmethod
     def _get_ext(path: str) -> str:
         """Extract file extension from path."""
         import os
@@ -194,6 +212,23 @@ class RansomwareEMADetector:
             # File deletion — common in ransomware (deletes originals)
             ext = self._get_ext(path)
             if ext in self.SENSITIVE_EXTENSIONS:
+                self._file_writes += 1
+        elif event_type == "file_write":
+            self._file_writes += 1
+            ext = self._get_ext(path)
+            if ext:
+                self._ext_writes.add(ext)
+            if ext in self.RANSOMWARE_EXTENSIONS:
+                self._entropy_deltas.append(self._trust_weight(event))
+        elif event_type == "file_delete":
+            ext = self._get_ext(path)
+            if ext in self.SENSITIVE_EXTENSIONS:
+                self._file_writes += 1
+        elif event_type == "file_rename":
+            ext = self._get_ext(path)
+            if ext in self.RANSOMWARE_EXTENSIONS:
+                self._entropy_deltas.append(self._trust_weight(event))
+            elif ext in self.SENSITIVE_EXTENSIONS:
                 self._file_writes += 1
 
         # Shadow copy deletion (Linux: vssadmin equivalent)
