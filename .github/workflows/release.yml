@@ -20,6 +20,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build agent binary
+        env:
+          RUSTFLAGS: "-L /usr/lib -l zstd -l bz2 -l lzma"
         run: |
           cargo build --release --manifest-path agent/rust/Cargo.toml
           cp agent/rust/target/release/ghost-agent \
