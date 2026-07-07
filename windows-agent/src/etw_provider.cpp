@@ -563,14 +563,57 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
 
     if (eid == 10) {  // NameCreate — carries the real filename
         std::wstring name = read_property_wstr(record, L"FileName");
-        if (!name.empty()) {
+        if (name.empty()) return false;
+
+        // CONFIRMED via live test: SetInformation (eid=17, the actual
+        // rename IRP) carries NO filename property at all (only Irp,
+        // FileObject, FileKey, ExtraInformation, IssuingThreadId,
+        // InfoClass) -- recovering the new name from that event is
+        // structurally impossible. But a rename reliably triggers a
+        // SECOND NameCreate for the same FileKey with the NEW name
+        // (verified: same FileKey, old name then .locked name, both
+        // NameCreate events). Detecting the name CHANGE here, at
+        // NameCreate time, is the correct and only reliable signal --
+        // more robust than depending on eid==17/19 event ordering.
+        bool is_rename = false;
+        {
             std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+            auto it = file_key_cache_.find(file_key);
+            if (it != file_key_cache_.end() && it->second != name) {
+                is_rename = true;
+            }
             if (file_key_cache_.size() >= FILE_KEY_CACHE_MAX) {
                 file_key_cache_.erase(file_key_cache_.begin());
             }
             file_key_cache_[file_key] = name;
         }
-        return false;  // NameCreate itself isn't a security-relevant event
+
+        if (!is_rename) return false;  // First time seeing this file — just cache it, not a security event
+
+        // Emit a real FILE_RENAME event with the NEW name, going through
+        // the same user-data scoping and trust-scoring as every other
+        // file event below.
+        std::string new_path_utf8 = wstr_to_utf8(name);
+        size_t pos = new_path_utf8.find("\\Users\\");
+        if (pos != std::string::npos) {
+            new_path_utf8 = new_path_utf8.substr(pos + 1);
+        }
+
+        static const char* USER_DATA_MARKERS_RENAME[] = {
+            "\\Documents\\", "\\Desktop\\", "\\Downloads\\",
+            "\\Pictures\\", "\\Videos\\", "\\Music\\", "\\OneDrive\\",
+        };
+        bool rename_in_user_data = false;
+        for (const char* marker : USER_DATA_MARKERS_RENAME) {
+            if (new_path_utf8.find(marker) != std::string::npos) { rename_in_user_data = true; break; }
+        }
+        if (!rename_in_user_data) return false;
+
+        strncpy(out.path, new_path_utf8.c_str(), sizeof(out.path)-1);
+        out.path[sizeof(out.path)-1] = 0;
+        out.event_type = GHOST_EVT_FILE_RENAME;
+        out.integrity = check_process_trust(out.pid);
+        return true;
     }
 
     std::wstring path;
@@ -628,19 +671,17 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
         out.event_type = GHOST_EVT_FILE_DELETE;
         return true;
     }
-    if (eid == 19 || eid == 17) {
-        // eid=17 (SetInformation) is included here because PowerShell's
-        // Rename-Item was observed to never generate a raw eid=19 (Rename)
-        // event — Windows file-rename operations from userspace commonly
-        // route through SetInformation instead, depending on how the
-        // renaming application issues the underlying NtSetInformationFile
-        // call. Treating both as FILE_RENAME until we can confirm this is
-        // always safe (SetInformation can also cover non-rename metadata
-        // changes, so this may need narrowing later if it proves noisy).
-        out.event_type = GHOST_EVT_FILE_RENAME;
-        return true;
-    }
-    return false;  // Other Kernel-File sub-events (Read, Cleanup, etc.) not forwarded
+    // NOTE: eid==17 (SetInformation, the actual rename IRP) and eid==19
+    // (Rename) are intentionally NOT handled here. Confirmed via live
+    // testing: SetInformation carries no filename property at all, so
+    // it can never report the new name -- and using the FileKey cache's
+    // (stale, pre-rename) path here was the root cause of a real bug:
+    // ransomware extension detection never worked because every event
+    // after a rename kept reporting the OLD filename forever. The
+    // correct, reliable rename signal is detected earlier in this
+    // function, in the eid==10 (NameCreate) branch, which catches the
+    // FileKey's name actually changing.
+    return false;  // Other Kernel-File sub-events (Read, Cleanup, SetInformation, Rename, etc.) not forwarded here
 }
 
 bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
