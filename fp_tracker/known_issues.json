@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "id": "HONEYPOT-IP-02",
+    "component": "C3/C14",
+    "title": "Dead-code duplicate suppressor still exists (detectors/honeypot_suppressor.py)",
+    "detail": "Confirmed genuinely inert -- should_suppress() in this file is never called from anywhere in the codebase (real, active logic now lives in alert-engine/correlator.py, fixed separately). Safe to delete this file in a future cleanup pass, or leave as reference -- does not affect runtime behavior either way.",
+    "severity": "LOW",
+    "owner": "unassigned",
+    "date_found": "2026-07-07"
+  }
+]
