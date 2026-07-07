@@ -16,7 +16,7 @@ tokio = { version = "1", features = ["full"] }
 
 # eBPF userspace
 libbpf-rs = "0.24"
-libbpf-sys = { version = "1.4", features = ["vendored-libelf"] }
+libbpf-sys = "1.4"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
