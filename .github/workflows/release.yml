@@ -30,6 +30,8 @@ jobs:
         run: sudo apt-get install -y libelf-dev linux-libc-dev pkg-config
 
       - name: Build agent binary
+        env:
+          CFLAGS_x86_64_unknown_linux_musl: "-I/usr/include/x86_64-linux-gnu"
         run: |
           cargo build --release --target x86_64-unknown-linux-musl \
             --manifest-path agent/rust/Cargo.toml
