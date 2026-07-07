@@ -29,9 +29,19 @@ jobs:
       - name: Install libbpf build dependencies
         run: sudo apt-get install -y libelf-dev linux-libc-dev pkg-config
 
+      - name: Provide kernel UAPI headers to musl sysroot
+        run: |
+          # musl doesn't ship Linux kernel UAPI headers (linux/, asm/,
+          # asm-generic/) since they're not part of musl itself. These are
+          # pure kernel-defined types with no glibc-specific struct
+          # definitions, so copying just these directories is safe --
+          # unlike pointing musl at glibc's whole include path (attempted
+          # previously), which pulls in incompatible glibc bits/ headers
+          # (__off_t, struct flock, etc.) that conflict with musl's own.
+          sudo cp -r /usr/include/linux /usr/include/x86_64-linux-musl/
+          sudo cp -r /usr/include/asm-generic /usr/include/x86_64-linux-musl/
+          sudo cp -r /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/
       - name: Build agent binary
-        env:
-          LIBBPF_SYS_EXTRA_CFLAGS: "-I/usr/include/x86_64-linux-gnu"
         run: |
           cargo build --release --target x86_64-unknown-linux-musl \
             --manifest-path agent/rust/Cargo.toml
