@@ -16,7 +16,7 @@ jobs:
       hash: ${{ steps.hash.outputs.hash }}
     steps:
       - name: Install build dependencies (native Alpine/musl packages)
-        run: apk add --no-cache git bash make gcc elfutils-dev libbpf-dev linux-headers musl-dev pkgconf
+        run: apk add --no-cache git bash make gcc elfutils-dev libbpf-dev linux-headers musl-dev pkgconf zlib-dev zlib-static
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build agent binary
