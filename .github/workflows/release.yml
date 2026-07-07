@@ -1,69 +1,42 @@
 name: Ghost IT Agent Release
-
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: rust:alpine
     permissions:
       id-token: write
       contents: write
     outputs:
       hash: ${{ steps.hash.outputs.hash }}
-
     steps:
+      - name: Install build dependencies (native Alpine/musl packages)
+        run: apk add --no-cache git bash elfutils-dev libbpf-dev linux-headers musl-dev pkgconf
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
-
-      - name: Install musl tools
-        run: sudo apt-get install -y musl-tools
-      - name: Install libbpf build dependencies
-        run: sudo apt-get install -y libelf-dev linux-libc-dev pkg-config
-
-      - name: Provide kernel UAPI headers to musl sysroot
-        run: |
-          # musl doesn't ship Linux kernel UAPI headers (linux/, asm/,
-          # asm-generic/) since they're not part of musl itself. These are
-          # pure kernel-defined types with no glibc-specific struct
-          # definitions, so copying just these directories is safe --
-          # unlike pointing musl at glibc's whole include path (attempted
-          # previously), which pulls in incompatible glibc bits/ headers
-          # (__off_t, struct flock, etc.) that conflict with musl's own.
-          sudo cp -r /usr/include/linux /usr/include/x86_64-linux-musl/
-          sudo cp -r /usr/include/asm-generic /usr/include/x86_64-linux-musl/
-          sudo cp -r /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl/
       - name: Build agent binary
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl \
-            --manifest-path agent/rust/Cargo.toml
-          cp agent/rust/target/x86_64-unknown-linux-musl/release/ghost-agent \
+          cargo build --release --manifest-path agent/rust/Cargo.toml
+          cp agent/rust/target/release/ghost-agent \
             ./ghostit-agent-linux-amd64
-
       - name: Compute SHA-256
         id: hash
         run: |
           echo "hash=$(sha256sum ghostit-agent-linux-amd64 | base64 -w0)" \
             >> $GITHUB_OUTPUT
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
-
       - name: Sign binary
         run: |
           cosign sign-blob \
             --bundle ghostit-agent-linux-amd64.cosign.bundle \
             --yes \
             ghostit-agent-linux-amd64
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -71,7 +44,6 @@ jobs:
           path: |
             ghostit-agent-linux-amd64
             ghostit-agent-linux-amd64.cosign.bundle
-
   provenance:
     needs: build
     permissions:
