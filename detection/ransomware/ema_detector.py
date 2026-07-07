@@ -121,6 +121,15 @@ class RansomwareEMADetector:
         "shadow_delete_ct",
         "file_write_rate",
         "mbr_write_ct",
+        "ransomware_ext_hit_count",  # COUNT (not average) of ransomware-
+        # extension events per window. file_entropy_delta is an AVERAGE
+        # of appended 1.0 values, so it's identical (1.0) whether 1 file
+        # or 100 files match a ransomware extension in the same window --
+        # confirmed via live test: 15 simultaneous .locked renames
+        # produced the exact same file_entropy_delta as a single one.
+        # This feature actually scales with volume, which is the real
+        # signal that distinguishes mass ransomware activity from an
+        # isolated suspicious rename.
     ]
 
     # Sigma thresholds
@@ -152,6 +161,7 @@ class RansomwareEMADetector:
         self._file_writes     = 0
         self._ext_writes:     set = set()
         self._entropy_deltas: list[float] = []
+        self._ransomware_ext_hit_count: int = 0
         self._shadow_deletes  = 0
         self._mbr_writes      = 0
 
@@ -207,6 +217,7 @@ class RansomwareEMADetector:
                 if ext in self.RANSOMWARE_EXTENSIONS:
                     # Instant high-weight entropy signal
                     self._entropy_deltas.append(1.0)
+                    self._ransomware_ext_hit_count += 1
 
         elif event_type == "unlink":
             # File deletion — common in ransomware (deletes originals)
@@ -220,6 +231,7 @@ class RansomwareEMADetector:
                 self._ext_writes.add(ext)
             if ext in self.RANSOMWARE_EXTENSIONS:
                 self._entropy_deltas.append(self._trust_weight(event))
+                self._ransomware_ext_hit_count += 1
         elif event_type == "file_delete":
             ext = self._get_ext(path)
             if ext in self.SENSITIVE_EXTENSIONS:
@@ -228,6 +240,7 @@ class RansomwareEMADetector:
             ext = self._get_ext(path)
             if ext in self.RANSOMWARE_EXTENSIONS:
                 self._entropy_deltas.append(self._trust_weight(event))
+                self._ransomware_ext_hit_count += 1
             elif ext in self.SENSITIVE_EXTENSIONS:
                 self._file_writes += 1
 
@@ -255,6 +268,7 @@ class RansomwareEMADetector:
             "shadow_delete_ct":      float(self._shadow_deletes),
             "file_write_rate":       self._file_writes / elapsed,
             "mbr_write_ct":          float(self._mbr_writes),
+            "ransomware_ext_hit_count": float(self._ransomware_ext_hit_count),
         }
 
         log.debug(f"C15 window features: {features}")
@@ -264,6 +278,7 @@ class RansomwareEMADetector:
         self._file_writes     = 0
         self._ext_writes      = set()
         self._entropy_deltas  = []
+        self._ransomware_ext_hit_count = 0
         self._shadow_deletes  = 0
         self._mbr_writes      = 0
 

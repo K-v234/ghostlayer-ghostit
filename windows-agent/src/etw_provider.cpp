@@ -231,39 +231,17 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         parsed = parse_ti_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS)) {
         USHORT eid = record->EventHeader.EventDescriptor.Id;
-        static USHORT seen_ids[32] = {0};
-        static int seen_count = 0;
-        bool already_seen = false;
-        for (int i = 0; i < seen_count; i++) if (seen_ids[i] == eid) { already_seen = true; break; }
-        if (!already_seen && seen_count < 32) {
-            seen_ids[seen_count++] = eid;
-            std::string task_name = "?";
-            ULONG tsz = 0;
-            TdhGetEventInformation(record, 0, nullptr, nullptr, &tsz);
-            if (tsz > 0) {
-                std::vector<BYTE> tbuf(tsz);
-                auto* tinfo = reinterpret_cast<TRACE_EVENT_INFO*>(tbuf.data());
-                if (TdhGetEventInformation(record, 0, nullptr, tinfo, &tsz) == ERROR_SUCCESS && tinfo->TaskNameOffset) {
-                    auto* nm = reinterpret_cast<LPCWSTR>(tbuf.data() + tinfo->TaskNameOffset);
-                    task_name = wstr_to_utf8(nm);
-                }
-            }
-            std::cerr << "[GHOST_DIAG_NEWID] Kernel-Process eid=" << eid << " task=" << task_name << "\n";
-            std::cerr.flush();
-        }
+        // Event ID routing confirmed via schema-driven TaskName lookup
+        // (not assumption): eid==1=ProcessStart, eid==2=ProcessStop,
+        // eid==3=ThreadStart (fires on every new thread in any process --
+        // NOT process creation; deliberately excluded here since routing
+        // it caused svchost.exe/System to show inflated process_exec
+        // counts). Other sub-events (ThreadSetPriority, WorkOnBehalf,
+        // etc.) carry no process identity and are intentionally dropped.
         if (eid == ETW_IMAGE_LOAD)
             parsed = parse_image_load(record, evt);
-        else if (eid == 1 || eid == 2)   // ProcessStart / ProcessStop only.
-            // CORRECTED: schema-driven TaskName lookup confirmed eid==3 is
-            // ThreadStart, not ProcessStart as earlier (indirect) evidence
-            // suggested. ThreadStart fires on every new thread within any
-            // process — routing it here caused svchost.exe/System(PID 4)
-            // to show inflated "process_exec" counts (they spawn many
-            // internal threads, not many processes).
+        else if (eid == 1 || eid == 2)
             parsed = parse_process_event(record, evt);
-        // else: ThreadSetPriority, WorkOnBehalf, and other Kernel-Process
-        // sub-events carry no ImageName and are intentionally dropped here
-        // rather than misrouted into the process-identity parser.
     } else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_NETWORK))
         parsed = parse_network_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_FILE))
@@ -395,6 +373,42 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
     if (out.comm[0] == 0)
         snprintf(out.comm, sizeof(out.comm), "pid_%u", out.pid);
 
+    // Command-line capture via PEB reading (independent of ETW-TI, which
+    // is permanently blocked without Microsoft ELAM/PPL certification).
+    // Reuses out.path since it's otherwise empty for real ProcessStart
+    // events (img_path fallback above only fires when Win32 resolution
+    // fails). Only attempted for genuine ProcessStart (event_id==1) --
+    // ProcessStop has nothing meaningful to read.
+    if (event_id == 1 && out.path[0] == 0) {
+        std::wstring cmdline = read_process_cmdline(out.pid);
+        if (!cmdline.empty()) {
+            std::string cmdline_utf8 = wstr_to_utf8(cmdline);
+            // Strip the executable path, keep only arguments -- that's
+            // what LOLBin detection actually matches against (e.g.
+            // "-urlcache -f http://..." not the full certutil.exe path).
+            // Handles both quoted ("C:\path\app.exe" -args) and
+            // unquoted (C:\path\app.exe -args) command lines.
+            size_t args_start = std::string::npos;
+            if (!cmdline_utf8.empty() && cmdline_utf8[0] == '"') {
+                size_t close_quote = cmdline_utf8.find('"', 1);
+                if (close_quote != std::string::npos) args_start = close_quote + 1;
+            } else {
+                size_t space_pos = cmdline_utf8.find(" -");
+                if (space_pos == std::string::npos) space_pos = cmdline_utf8.find(" /");
+                if (space_pos != std::string::npos) args_start = space_pos;
+            }
+            std::string args_only = (args_start != std::string::npos && args_start < cmdline_utf8.size())
+                ? cmdline_utf8.substr(args_start)
+                : cmdline_utf8;
+            // Trim leading whitespace
+            size_t first_nonspace = args_only.find_first_not_of(' ');
+            if (first_nonspace != std::string::npos) args_only = args_only.substr(first_nonspace);
+
+            strncpy(out.path, args_only.c_str(), sizeof(out.path)-1);
+            out.path[sizeof(out.path)-1] = 0;
+        }
+    }
+
     return true;
 }
 
@@ -407,6 +421,90 @@ bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 // relatively expensive and a process's signature never changes during its
 // lifetime. Returns a GHOST_INTEGRITY_* value: SYSTEM/HIGH for verified
 // signed binaries, UNTRUSTED for unsigned or verification-failed processes.
+// Reads a running process's command line via PEB inspection --
+// OpenProcess -> NtQueryInformationProcess(ProcessBasicInformation) to
+// get the PEB address -> ReadProcessMemory the PEB -> ReadProcessMemory
+// the RTL_USER_PROCESS_PARAMETERS -> ReadProcessMemory the CommandLine
+// UNICODE_STRING buffer. Same technique Task Manager/Process Explorer
+// use. Independent of ETW-TI (permanently blocked, see known_issues.json)
+// and does not rely on Kernel-Process's schema (which never exposes
+// CommandLine, confirmed empty on real events).
+std::wstring EtwProvider::read_process_cmdline(DWORD pid)
+{
+    std::wstring result;
+
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (!hProc) return result;
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!ntdll) { CloseHandle(hProc); return result; }
+
+    using NtQueryInformationProcessFn = NTSTATUS(WINAPI*)(
+        HANDLE, ULONG, PVOID, ULONG, PULONG);
+    void* proc_addr = reinterpret_cast<void*>(GetProcAddress(ntdll, "NtQueryInformationProcess"));
+    auto NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcessFn>(proc_addr);
+    if (!NtQueryInformationProcess) { CloseHandle(hProc); return result; }
+
+    // PROCESS_BASIC_INFORMATION layout (undocumented but stable since XP)
+    struct PROCESS_BASIC_INFORMATION_LOCAL {
+        PVOID Reserved1;
+        PVOID PebBaseAddress;
+        PVOID Reserved2[2];
+        ULONG_PTR UniqueProcessId;
+        PVOID Reserved3;
+    };
+
+    PROCESS_BASIC_INFORMATION_LOCAL pbi{};
+    ULONG returnLength = 0;
+    NTSTATUS status = NtQueryInformationProcess(
+        hProc, 0 /* ProcessBasicInformation */, &pbi, sizeof(pbi), &returnLength);
+    if (status != 0 || !pbi.PebBaseAddress) { CloseHandle(hProc); return result; }
+
+    // Minimal PEB layout, only up to ProcessParameters (offset 0x20 on x64)
+    struct PEB_LOCAL {
+        BYTE Reserved1[2];
+        BYTE BeingDebugged;
+        BYTE Reserved2[1];
+        PVOID Reserved3[2];
+        PVOID Ldr;
+        PVOID ProcessParameters;
+    };
+
+    PEB_LOCAL peb{};
+    if (!ReadProcessMemory(hProc, pbi.PebBaseAddress, &peb, sizeof(peb), nullptr)) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    // Minimal RTL_USER_PROCESS_PARAMETERS layout, only up to CommandLine
+    struct RTL_USER_PROCESS_PARAMETERS_LOCAL {
+        BYTE Reserved1[16];
+        PVOID Reserved2[10];
+        UNICODE_STRING ImagePathName;
+        UNICODE_STRING CommandLine;
+    };
+
+    RTL_USER_PROCESS_PARAMETERS_LOCAL params{};
+    if (!ReadProcessMemory(hProc, peb.ProcessParameters, &params, sizeof(params), nullptr)) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    if (params.CommandLine.Length == 0 || !params.CommandLine.Buffer) {
+        CloseHandle(hProc);
+        return result;
+    }
+
+    std::vector<WCHAR> buf(params.CommandLine.Length / sizeof(WCHAR) + 1, 0);
+    if (ReadProcessMemory(hProc, params.CommandLine.Buffer, buf.data(),
+                          params.CommandLine.Length, nullptr)) {
+        result.assign(buf.data());
+    }
+
+    CloseHandle(hProc);
+    return result;
+}
+
 uint8_t EtwProvider::check_process_trust(DWORD pid)
 {
     {
@@ -465,14 +563,57 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
 
     if (eid == 10) {  // NameCreate — carries the real filename
         std::wstring name = read_property_wstr(record, L"FileName");
-        if (!name.empty()) {
+        if (name.empty()) return false;
+
+        // CONFIRMED via live test: SetInformation (eid=17, the actual
+        // rename IRP) carries NO filename property at all (only Irp,
+        // FileObject, FileKey, ExtraInformation, IssuingThreadId,
+        // InfoClass) -- recovering the new name from that event is
+        // structurally impossible. But a rename reliably triggers a
+        // SECOND NameCreate for the same FileKey with the NEW name
+        // (verified: same FileKey, old name then .locked name, both
+        // NameCreate events). Detecting the name CHANGE here, at
+        // NameCreate time, is the correct and only reliable signal --
+        // more robust than depending on eid==17/19 event ordering.
+        bool is_rename = false;
+        {
             std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+            auto it = file_key_cache_.find(file_key);
+            if (it != file_key_cache_.end() && it->second != name) {
+                is_rename = true;
+            }
             if (file_key_cache_.size() >= FILE_KEY_CACHE_MAX) {
                 file_key_cache_.erase(file_key_cache_.begin());
             }
             file_key_cache_[file_key] = name;
         }
-        return false;  // NameCreate itself isn't a security-relevant event
+
+        if (!is_rename) return false;  // First time seeing this file — just cache it, not a security event
+
+        // Emit a real FILE_RENAME event with the NEW name, going through
+        // the same user-data scoping and trust-scoring as every other
+        // file event below.
+        std::string new_path_utf8 = wstr_to_utf8(name);
+        size_t pos = new_path_utf8.find("\\Users\\");
+        if (pos != std::string::npos) {
+            new_path_utf8 = new_path_utf8.substr(pos + 1);
+        }
+
+        static const char* USER_DATA_MARKERS_RENAME[] = {
+            "\\Documents\\", "\\Desktop\\", "\\Downloads\\",
+            "\\Pictures\\", "\\Videos\\", "\\Music\\", "\\OneDrive\\",
+        };
+        bool rename_in_user_data = false;
+        for (const char* marker : USER_DATA_MARKERS_RENAME) {
+            if (new_path_utf8.find(marker) != std::string::npos) { rename_in_user_data = true; break; }
+        }
+        if (!rename_in_user_data) return false;
+
+        strncpy(out.path, new_path_utf8.c_str(), sizeof(out.path)-1);
+        out.path[sizeof(out.path)-1] = 0;
+        out.event_type = GHOST_EVT_FILE_RENAME;
+        out.integrity = check_process_trust(out.pid);
+        return true;
     }
 
     std::wstring path;
@@ -530,19 +671,17 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
         out.event_type = GHOST_EVT_FILE_DELETE;
         return true;
     }
-    if (eid == 19 || eid == 17) {
-        // eid=17 (SetInformation) is included here because PowerShell's
-        // Rename-Item was observed to never generate a raw eid=19 (Rename)
-        // event — Windows file-rename operations from userspace commonly
-        // route through SetInformation instead, depending on how the
-        // renaming application issues the underlying NtSetInformationFile
-        // call. Treating both as FILE_RENAME until we can confirm this is
-        // always safe (SetInformation can also cover non-rename metadata
-        // changes, so this may need narrowing later if it proves noisy).
-        out.event_type = GHOST_EVT_FILE_RENAME;
-        return true;
-    }
-    return false;  // Other Kernel-File sub-events (Read, Cleanup, etc.) not forwarded
+    // NOTE: eid==17 (SetInformation, the actual rename IRP) and eid==19
+    // (Rename) are intentionally NOT handled here. Confirmed via live
+    // testing: SetInformation carries no filename property at all, so
+    // it can never report the new name -- and using the FileKey cache's
+    // (stale, pre-rename) path here was the root cause of a real bug:
+    // ransomware extension detection never worked because every event
+    // after a rename kept reporting the OLD filename forever. The
+    // correct, reliable rename signal is detected earlier in this
+    // function, in the eid==10 (NameCreate) branch, which catches the
+    // FileKey's name actually changing.
+    return false;  // Other Kernel-File sub-events (Read, Cleanup, SetInformation, Rename, etc.) not forwarded here
 }
 
 bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
@@ -615,7 +754,7 @@ std::wstring EtwProvider::read_property_wstr(PEVENT_RECORD record,
     // property by name against whatever schema THIS event actually uses,
     // so it works identically across Win10/Win11/Server versions.
     ULONG info_size = 0;
-    ULONG s1 = TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
+    TdhGetEventInformation(record, 0, nullptr, nullptr, &info_size);
     if (info_size == 0) {
         return L"";  // This event type's schema doesn't support size query — expected for many sub-events
     }

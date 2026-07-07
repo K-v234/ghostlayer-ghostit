@@ -1,55 +1,44 @@
 name: Ghost IT Agent Release
-
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: rust:alpine
     permissions:
       id-token: write
       contents: write
     outputs:
       hash: ${{ steps.hash.outputs.hash }}
-
     steps:
+      - name: Install build dependencies (native Alpine/musl packages)
+        run: apk add --no-cache git bash curl make gcc elfutils-dev libbpf-dev linux-headers musl-dev pkgconf zlib-dev zlib-static zstd-dev zstd-static bzip2-dev bzip2-static xz-dev xz-static
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
-
-      - name: Install musl tools
-        run: sudo apt-get install -y musl-tools
-
       - name: Build agent binary
+        env:
+          RUSTFLAGS: "-L /usr/lib -l zstd -l bz2 -l lzma"
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl \
-            --manifest-path agent/rust/Cargo.toml
-          cp agent/rust/target/x86_64-unknown-linux-musl/release/ghost-agent \
+          cargo build --release --manifest-path agent/rust/Cargo.toml
+          cp agent/rust/target/release/ghost-agent \
             ./ghostit-agent-linux-amd64
-
       - name: Compute SHA-256
         id: hash
         run: |
           echo "hash=$(sha256sum ghostit-agent-linux-amd64 | base64 -w0)" \
             >> $GITHUB_OUTPUT
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
-
       - name: Sign binary
         run: |
           cosign sign-blob \
             --bundle ghostit-agent-linux-amd64.cosign.bundle \
             --yes \
             ghostit-agent-linux-amd64
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -57,7 +46,6 @@ jobs:
           path: |
             ghostit-agent-linux-amd64
             ghostit-agent-linux-amd64.cosign.bundle
-
   provenance:
     needs: build
     permissions:
@@ -67,4 +55,10 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: "${{ needs.build.outputs.hash }}"
-      upload-assets: true
+      # Only upload to a GitHub Release when actually triggered by a real
+      # tag push -- there's no release to attach to on a manual
+      # workflow_dispatch run, which caused "Input required: path".
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+      # Required for private repos -- prevents repo name from leaking
+      # into the public Rekor transparency log without explicit opt-in.
+      private-repository: true

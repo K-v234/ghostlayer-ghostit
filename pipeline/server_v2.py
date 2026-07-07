@@ -105,11 +105,20 @@ def next_id():
 
 def parquet_path_for_now():
     now = datetime.now(timezone.utc)
-    return os.path.join(PARQUET_DIR, now.strftime("%Y/%m/%d/%H"), "events.parquet")
+    return os.path.join(PARQUET_DIR, now.strftime("%Y/%m/%d/%H"), f"batch_{int(time.time()*1000)}_{os.getpid()}.parquet")
 
 def flush_to_parquet(events):
     if not events:
         return
+    # Each flush writes its OWN small file (unique timestamp+pid in
+    # filename) instead of read-modify-write of one growing per-hour
+    # file. The old pattern re-read and rewrote the entire hour's
+    # accumulated data on every single flush -- O(n^2) cost over the
+    # course of each hour, and the real scale ceiling under real
+    # multi-endpoint load, not DuckDB itself (DuckDB only reads
+    # Parquet via glob, it never writes). DuckDB's glob-based query
+    # path already reads across multiple files natively, so this
+    # requires no read-path changes.
     path = parquet_path_for_now()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     rows = {f.name: [] for f in SCHEMA}
@@ -136,10 +145,10 @@ def flush_to_parquet(events):
         rows["dpdp_pii_flag"].append(bool(e.get("dpdp_pii_flag", False)))
         rows["integrity"].append(int(e.get("integrity") or 0))
     table = pa.table(rows, schema=SCHEMA)
-    if os.path.exists(path):
-        existing = pq.read_table(path)
-        table = pa.concat_tables([existing, table])
-    # Atomic write: write to temp file then rename — prevents corruption on restart
+    # No read-modify-write: each flush has a unique filename now (see
+    # parquet_path_for_now), so there's never an existing file at this
+    # exact path to merge with. Atomic write still applies -- temp file
+    # + rename prevents a half-written file from being read mid-write.
     tmp_path = path + ".tmp"
     pq.write_table(table, tmp_path, compression="snappy", row_group_size=10_000)
     os.replace(tmp_path, path)
@@ -199,6 +208,15 @@ def enrich_batch(events):
         agent = e.get("agent", "")
         if agent == "windows-c9":
             e["host"] = "windows"
+            # Windows agent sends command-line arguments via the path
+            # field (out.path in ghost_event_t, reused since it's empty
+            # for real ProcessStart events) rather than a dedicated args
+            # field. Map it here so LOLBinDetector.check_event(), which
+            # reads event.get("args"), actually sees it.
+            if e.get("type") == "process_exec" and not e.get("args"):
+                candidate = e.get("path") or e.get("file")
+                if candidate:
+                    e["args"] = candidate
         else:
             e["host"] = "linux"
         path = e.get("file") or e.get("path") or ""

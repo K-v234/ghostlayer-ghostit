@@ -27,6 +27,9 @@ from detection.ransomware.file_entropy_monitor import FileEntropyMonitor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
 from detectors.lolbin_detector import LOLBinDetector
 
+# Level set to INFO by default; pass --log-level DEBUG at startup to see
+# verbose internal diagnostics (e.g. C15 window feature values) without
+# needing to edit source code and restart every time.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [detection] %(levelname)s %(message)s",
@@ -396,12 +399,14 @@ class DetectionEngine:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--log-level",      default="INFO", choices=["DEBUG","INFO","WARNING","ERROR"])
     ap.add_argument("--api",           default="http://127.0.0.1:8000")
     ap.add_argument("--poll-interval", default=10,  type=int)
     ap.add_argument("--window",        default=120, type=int)
     ap.add_argument("--pipeline-host", default="127.0.0.1")
     ap.add_argument("--pipeline-port", default=9000, type=int)
     args = ap.parse_args()
+    logging.getLogger().setLevel(getattr(logging, args.log_level))
 
     DetectionEngine(
         api_base      = args.api,
