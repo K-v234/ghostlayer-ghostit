@@ -17,19 +17,64 @@ from mitre_mapper import MitreTag, map_alert, T
 from apt_window import WindowConfig, WindowType, select_window, select_window_for_tactics, is_within_window, now_utc
 from incidents import RawAlert, Incident, IncidentStore
 
-_honeypot_ips: set[str] = set()
+# Honeypots (current gVisor dev-fallback deployment) bind to the HOST's
+# own IP, differentiated only by PORT (docker run -p {port}:{port}
+# --network none) -- checking IP alone would incorrectly match ANY
+# traffic to this host, not just honeypot traffic. Track (ip, port)
+# pairs instead. NOTE: this assumption is specific to the gVisor
+# deployment path; Firecracker (production) honeypot networking is not
+# yet fully wired (tap device never attached in _deploy_firecracker) --
+# revisit this check once that's completed, since Firecracker honeypots
+# may get their own real IP instead of sharing the host's.
+_honeypot_endpoints: set[tuple[str, int]] = set()
 _honeypot_lock = threading.Lock()
+_honeypot_file_mtime: float = 0.0
+_HONEYPOT_ENDPOINTS_FILE = "~/ghostlayer/data/honeypot_endpoints.json"
 
-def register_honeypot_ip(ip): 
-    with _honeypot_lock: _honeypot_ips.add(ip)
+def register_honeypot_ip(ip, port):
+    """Manual/in-process registration, kept for direct callers in the
+    same process. Real cross-process registration happens via the
+    shared file, loaded by _reload_honeypot_endpoints_if_changed()."""
+    with _honeypot_lock: _honeypot_endpoints.add((ip, int(port)))
 
-def is_honeypot_ip(ip): 
-    with _honeypot_lock: return ip in _honeypot_ips
+def _reload_honeypot_endpoints_if_changed():
+    """
+    Honeypots are deployed by deception/honeypots/orchestrator.py, which
+    runs as a SEPARATE process from ghostit-detection (confirmed: engine.py
+    never imports the orchestrator). Poll the shared file it writes to,
+    reloading only when the file's mtime actually changes -- cheap check,
+    avoids re-parsing JSON on every single alert.
+    """
+    import json, os
+    global _honeypot_file_mtime
+    path = os.path.expanduser(_HONEYPOT_ENDPOINTS_FILE)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return  # File doesn't exist yet -- no honeypots deployed
+    if mtime == _honeypot_file_mtime:
+        return  # Unchanged since last load
+    try:
+        with open(path) as f:
+            endpoints = json.load(f)
+        with _honeypot_lock:
+            _honeypot_endpoints.clear()
+            for e in endpoints:
+                _honeypot_endpoints.add((e["ip"], int(e["port"])))
+        _honeypot_file_mtime = mtime
+    except Exception:
+        pass  # Malformed file -- keep previous known-good set rather than crash
+
+def is_honeypot_endpoint(ip, port):
+    _reload_honeypot_endpoints_if_changed()
+    with _honeypot_lock: return (ip, int(port)) in _honeypot_endpoints
 
 def should_suppress(alert: RawAlert) -> bool:
     if alert.source == AlertSource.C14_TLS:
         raw = json.loads(alert.raw_json) if alert.raw_json else {}
-        if raw.get("daddr","") and is_honeypot_ip(raw.get("daddr","")): return True
+        daddr = raw.get("daddr", "")
+        dport = raw.get("dport", 0)
+        if daddr and dport and is_honeypot_endpoint(daddr, dport): return True
     if (alert.severity == Severity.INFO and 
         alert.source in (AlertSource.C9_ETW,AlertSource.C9_EBPF) and 
         not alert.reason): return True

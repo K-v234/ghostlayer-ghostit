@@ -109,7 +109,43 @@ class HoneypotOrchestrator:
             with self._lock:
                 self.honeypots[htype] = hp
             log.info(f"Honeypot deployed: {htype} on port {hp.port} [{self.runtime}]")
+            self._register_with_suppressor(hp)
         return success
+
+    def _register_with_suppressor(self, hp: "HoneypotConfig"):
+        """
+        Register this honeypot's endpoint so C14 (alert-engine/correlator.py,
+        running as a SEPARATE process inside ghostit-detection) knows not to
+        double-alert on its own traffic. A direct Python import doesn't work
+        here since deploy() and the detection engine run in different
+        processes with separate memory -- confirmed: detection/engine.py
+        never imports this orchestrator, so an in-process set update would
+        silently update a copy the real detection engine never sees.
+        Using a shared JSON file instead, polled periodically by correlator.py.
+        gVisor path binds to the HOST's IP (docker -p port:port --network
+        none), so 127.0.0.1 + the honeypot's port is the correct endpoint.
+        NOTE: revisit once Firecracker's network-interface attachment is
+        actually implemented -- production honeypots may get a real,
+        separate IP instead of sharing the host's.
+        """
+        import json, os, time
+        endpoints_file = os.path.expanduser("~/ghostlayer/data/honeypot_endpoints.json")
+        os.makedirs(os.path.dirname(endpoints_file), exist_ok=True)
+        endpoints = []
+        if os.path.exists(endpoints_file):
+            try:
+                with open(endpoints_file) as f:
+                    endpoints = json.load(f)
+            except Exception:
+                endpoints = []
+        entry = {"ip": "127.0.0.1", "port": hp.port, "htype": hp.htype, "registered_at": time.time()}
+        endpoints = [e for e in endpoints if e.get("htype") != hp.htype]
+        endpoints.append(entry)
+        tmp_path = endpoints_file + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(endpoints, f, indent=2)
+        os.replace(tmp_path, endpoints_file)
+        log.info(f"Registered honeypot endpoint for C14 suppressor: 127.0.0.1:{hp.port} ({hp.htype})")
 
     def _deploy_gvisor(self, hp: HoneypotConfig, cfg: dict) -> bool:
         """Deploy honeypot using gVisor (runsc) — development fallback."""
