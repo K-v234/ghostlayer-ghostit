@@ -55,4 +55,10 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
     with:
       base64-subjects: "${{ needs.build.outputs.hash }}"
-      upload-assets: true
+      # Only upload to a GitHub Release when actually triggered by a real
+      # tag push -- there's no release to attach to on a manual
+      # workflow_dispatch run, which caused "Input required: path".
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+      # Required for private repos -- prevents repo name from leaking
+      # into the public Rekor transparency log without explicit opt-in.
+      private-repository: true
