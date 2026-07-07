@@ -1,0 +1,8 @@
+{
+  "type": "db",
+  "port": 3306,
+  "image": "mysql:8.0",
+  "description": "MySQL listener — data exfiltration target",
+  "args": ["-e", "MYSQL_ROOT_PASSWORD=honeypot123"],
+  "kernel": "/opt/ghost/kernels/vmlinux-5.15"
+}

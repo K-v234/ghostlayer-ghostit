@@ -1,0 +1,8 @@
+{
+  "type": "ssh",
+  "port": 2222,
+  "image": "linuxserver/openssh-server:latest",
+  "description": "SSH server — Linux pivot target",
+  "args": [],
+  "kernel": "/opt/ghost/kernels/vmlinux-5.15"
+}

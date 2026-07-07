@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "updated": "2026-06-21",
+  "description": "Known C2 framework JA4+ hashes — Ghost Layer Threat Intelligence",
+  "hashes": [
+    "t13d1516h2_8daaf6152771_b0da82dd1658",
+    "t13d1517h2_8daaf6152771_b0da82dd1658",
+    "t12d1516h2_8daaf6152771_b0da82dd1658",
+    "t13d1516h2_e7d705d1e543_b0da82dd1658",
+    "t13d1516h2_8daaf6152771_e7d705d1e543"
+  ],
+  "sources": [
+    "Cobalt Strike default TLS profile",
+    "Metasploit meterpreter TLS",
+    "Sliver C2 framework",
+    "Havoc C2 framework",
+    "Brute Ratel C4"
+  ]
+}

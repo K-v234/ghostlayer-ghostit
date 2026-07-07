@@ -1,0 +1,8 @@
+{
+  "type": "http",
+  "port": 8080,
+  "image": "nginx:alpine",
+  "description": "HTTP internal web app — credential phishing target",
+  "args": [],
+  "kernel": "/opt/ghost/kernels/vmlinux-5.15"
+}

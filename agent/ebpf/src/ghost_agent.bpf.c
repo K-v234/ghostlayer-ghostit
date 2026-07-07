@@ -92,10 +92,11 @@ static __always_inline void fill_common(
     bpf_get_current_comm(e->comm, sizeof(e->comm));
 }
 
+/* High-value events: only drop agent-self and blacklisted PIDs.
+ * NO uid filter — root-level attacks must be captured. */
 static __always_inline int should_drop(void)
 {
     __u32 pid = bpf_get_current_pid_tgid() >> 32;
-    __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     __u32 key, *val;
 
     /* Drop our own agent */
@@ -104,15 +105,40 @@ static __always_inline int should_drop(void)
     if (val && *val && pid == *val)
         return 1;
 
-    /* Drop UIDs below minimum */
-    key = 0;
+    /* Drop blacklisted PIDs */
+    __u8 *bl = bpf_map_lookup_elem(&pid_blacklist, &pid);
+    if (bl)
+        return 1;
+
+    return 0;
+}
+
+/* Noisy events (read, write, open): apply uid filter to reduce volume.
+ * Keeps system daemon noise out while capturing user-space activity. */
+static __always_inline int should_drop_noisy(void)
+{
+    if (should_drop()) return 1;
+
+    __u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+    __u32 key = 0, *val;
     val = bpf_map_lookup_elem(&ghost_config, &key);
     if (val && uid < *val)
         return 1;
 
-    /* Drop blacklisted PIDs */
-    __u8 *bl = bpf_map_lookup_elem(&pid_blacklist, &pid);
-    if (bl)
+
+    /* Drop known high-noise zero-security-value processes */
+    char comm[16] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    /* Firefox/Chrome renderer threads (Thread-N) */
+    if (comm[0]=='T' && comm[1]=='h' && comm[2]=='r' && comm[3]=='e' &&
+        comm[4]=='a' && comm[5]=='d' && comm[6]=='-')
+        return 1;
+    /* KMS/DRM graphics threads */
+    if (comm[0]=='K' && comm[1]=='M' && comm[2]=='S' && comm[3]==' ')
+        return 1;
+    /* gnome-shell desktop UI */
+    if (comm[0]=='g' && comm[1]=='n' && comm[2]=='o' && comm[3]=='m' &&
+        comm[4]=='e' && comm[5]=='-' && comm[6]=='s')
         return 1;
 
     return 0;
@@ -206,6 +232,19 @@ int handle_capset(struct trace_event_raw_sys_enter *ctx)
 #define PROT_EXEC 0x4
 #define MAP_ANON  0x20
 
+static __always_inline int is_jit_process(void)
+{
+    char comm[16] = {};
+    bpf_get_current_comm(comm, sizeof(comm));
+    /* Filter known JIT processes that generate excessive mprotect/mmap_exec events */
+    if (comm[0]=='g' && comm[1]=='n' && comm[2]=='o' && comm[3]=='m') return 1; /* gnome-* */
+    if (comm[0]=='X' && comm[1]=='w' && comm[2]=='a' && comm[3]=='y') return 1; /* Xwayland */
+    if (comm[0]=='f' && comm[1]=='i' && comm[2]=='r' && comm[3]=='e') return 1; /* firefox */
+    if (comm[0]=='c' && comm[1]=='h' && comm[2]=='r' && comm[3]=='o') return 1; /* chrome */
+    if (comm[0]=='j' && comm[1]=='a' && comm[2]=='v' && comm[3]=='a') return 1; /* java */
+    return 0;
+}
+
 SEC("tp/syscalls/sys_enter_mmap")
 int handle_mmap(struct trace_event_raw_sys_enter *ctx)
 {
@@ -217,10 +256,13 @@ int handle_mmap(struct trace_event_raw_sys_enter *ctx)
 
     if (!(prot & PROT_EXEC)) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    /* Skip JIT processes — they generate hundreds of mmap_exec per minute */
+    if (is_jit_process()) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
 
-    fill_common(e, EVENT_MMAP_EXEC, PRIORITY_CRITICAL);
+    fill_common(e, EVENT_MMAP_EXEC, PRIORITY_STANDARD);
     e->flags = (__u16)(prot | (flags << 8));
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -234,10 +276,13 @@ int handle_mprotect(struct trace_event_raw_sys_enter *ctx)
     __u64 prot = (__u64)ctx->args[2];
     if (!(prot & PROT_EXEC)) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    /* Skip JIT processes — they flood the critical ring */
+    if (is_jit_process()) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
 
-    fill_common(e, EVENT_MPROTECT, PRIORITY_CRITICAL);
+    fill_common(e, EVENT_MPROTECT, PRIORITY_STANDARD);
     e->flags = (__u16)prot;
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -250,12 +295,16 @@ int handle_mprotect(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_execve")
 int handle_execve(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop()) {
+        return 0;
+    }
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
-    if (!e) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
+    if (!e) {
+        return 0;
+    }
 
-    fill_common(e, EVENT_EXEC, PRIORITY_STANDARD);
+    fill_common(e, EVENT_EXEC, PRIORITY_CRITICAL);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[0]);
     bpf_ringbuf_submit(e, 0);
@@ -267,10 +316,10 @@ int handle_execveat(struct trace_event_raw_sys_enter *ctx)
 {
     if (should_drop()) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    struct ghost_event *e = RESERVE(PRIORITY_CRITICAL);
     if (!e) return 0;
 
-    fill_common(e, EVENT_EXEC, PRIORITY_STANDARD);
+    fill_common(e, EVENT_EXEC, PRIORITY_CRITICAL);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[1]);
     bpf_ringbuf_submit(e, 0);
@@ -326,16 +375,23 @@ int handle_prctl(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_openat")
 int handle_openat(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     char path[16] = {};
     bpf_probe_read_user_str(path, sizeof(path), (const void *)(long)ctx->args[1]);
     if (is_noisy_path((const void *)(long)ctx->args[1])) return 0;
 
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
-    if (!e) return 0;
+    /* Elevate /tmp and /dev/shm opens to critical ring — never dropped */
+    __u8 priority = PRIORITY_STANDARD;
+    if (path[0]=='/' && path[1]=='t' && path[2]=='m' && path[3]=='p')
+        priority = PRIORITY_CRITICAL;
+    if (path[0]=='/' && path[1]=='d' && path[2]=='e' && path[3]=='v' &&
+        path[4]=='/' && path[5]=='s' && path[6]=='h' && path[7]=='m')
+        priority = PRIORITY_CRITICAL;
 
-    fill_common(e, EVENT_OPEN, PRIORITY_STANDARD);
+    struct ghost_event *e = RESERVE(priority);
+    if (!e) return 0;
+    fill_common(e, EVENT_OPEN, priority);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[1]);
     e->flags = (__u16)ctx->args[2];
@@ -438,13 +494,18 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
     bpf_probe_read_user(&addr, sizeof(addr), (const void *)(long)ctx->args[1]);
     e->flags = addr.sin_family;
 
-    /* Encode IP:port in path field */
-    __u32 ip   = addr.sin_addr.s_addr;
-    __u16 port = __builtin_bswap16(addr.sin_port);
-    /* Store raw IP+port in path as hex string */
-    __u8 a = ip & 0xFF, b = (ip>>8)&0xFF, c = (ip>>16)&0xFF, d = (ip>>24)&0xFF;
-    e->path[0] = a; e->path[1] = b; e->path[2] = c; e->path[3] = d;
-    e->path[4] = (port >> 8) & 0xFF; e->path[5] = port & 0xFF;
+    /* Only encode IP:port for AF_INET (2) — skip AF_UNIX */
+    if (addr.sin_family == 2) {
+        __u32 ip   = addr.sin_addr.s_addr;
+        __u16 port = __builtin_bswap16(addr.sin_port);
+        /* sin_addr is network byte order (big-endian) — read MSB first */
+        e->path[0] = (ip >> 24) & 0xFF;
+        e->path[1] = (ip >> 16) & 0xFF;
+        e->path[2] = (ip >> 8)  & 0xFF;
+        e->path[3] = ip & 0xFF;
+        e->path[4] = (port >> 8) & 0xFF;
+        e->path[5] = port & 0xFF;
+    }
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -512,7 +573,7 @@ int handle_vfork(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_read")
 int handle_read(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     /* Only track reads on interesting fds — skip fd 0,1,2 */
     int fd = (int)ctx->args[0];
@@ -529,7 +590,7 @@ int handle_read(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_write")
 int handle_write(struct trace_event_raw_sys_enter *ctx)
 {
-    if (should_drop()) return 0;
+    if (should_drop_noisy()) return 0;
 
     int fd = (int)ctx->args[0];
     if (fd <= 2) return 0;
@@ -805,6 +866,23 @@ int BPF_KPROBE(handle_tcp_connect, struct sock *sk)
     struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
     fill_common(e, EVENT_TCP_CONNECT, PRIORITY_STANDARD);
+
+    /* Extract destination IP and port from sock struct via CO-RE */
+    __u32 daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    __u16 dport = BPF_CORE_READ(sk, __sk_common.skc_dport);
+
+    /* Store as A.B.C.D:PORT raw bytes in path — decoded by Rust events.rs */
+    __u8 a = daddr & 0xFF;
+    __u8 b = (daddr >> 8)  & 0xFF;
+    __u8 c = (daddr >> 16) & 0xFF;
+    __u8 d = (daddr >> 24) & 0xFF;
+    __u16 port = __builtin_bswap16(dport);
+
+    e->path[0] = a; e->path[1] = b;
+    e->path[2] = c; e->path[3] = d;
+    e->path[4] = (port >> 8) & 0xFF;
+    e->path[5] = port & 0xFF;
+
     bpf_ringbuf_submit(e, 0);
     return 0;
 }

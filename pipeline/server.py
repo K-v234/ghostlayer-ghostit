@@ -76,7 +76,8 @@ def init_db(db_path: str):
             daddr       VARCHAR,
             dport       USMALLINT,
             family      USMALLINT,
-            clone_flags UBIGINT
+            clone_flags UBIGINT,
+            dpdp_pii_flag BOOLEAN DEFAULT FALSE
         )
     """)
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_ts    ON events (ts DESC)")
@@ -84,6 +85,7 @@ def init_db(db_path: str):
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_pid   ON events (pid, ts DESC)")
     DB_CONN.execute("CREATE INDEX IF NOT EXISTS idx_comm  ON events (comm, ts DESC)")
     DB_CONN.execute("CREATE SEQUENCE IF NOT EXISTS event_id_seq START 1")
+
     log.info(f"DB ready: {db_path}")
 
     # 90-day retention cleanup on startup (DPDP compliant)
@@ -97,18 +99,45 @@ def init_db(db_path: str):
         log.warning(f"Retention cleanup error: {ex}")
 
 
+
+def _extract_daddr(path: str | None) -> str | None:
+    """Extract IP from path field formatted as 'A.B.C.D:PORT'."""
+    if not path or ':' not in path:
+        return None
+    try:
+        parts = path.rsplit(':', 1)
+        ip = parts[0]
+        # Validate it looks like an IP
+        if all(p.isdigit() for p in ip.split('.')) and len(ip.split('.')) == 4:
+            return ip
+    except Exception:
+        pass
+    return None
+
+def _extract_dport(path: str | None) -> int | None:
+    """Extract port from path field formatted as 'A.B.C.D:PORT'."""
+    if not path or ':' not in path:
+        return None
+    try:
+        port = int(path.rsplit(':', 1)[1])
+        return port if 0 < port < 65536 else None
+    except Exception:
+        return None
+
 def insert_batch(events: list[dict]) -> int:
     if not events:
         return 0
     rows = [(
         e.get("ts", 0), e.get("pid", 0), e.get("ppid", 0),
         e.get("uid", 0), e.get("gid", 0),
-        e.get("comm", ""), e.get("type", ""),
+        e.get("comm", ""), e.get("event_type", "") or e.get("type", ""),
         e.get("score", 0), bool(e.get("alert", False)),
         e.get("reasons", []),
-        e.get("file"), e.get("args"), e.get("flags"),
-        e.get("daddr"), e.get("dport"), e.get("family"),
-        e.get("clone_flags"),
+        e.get("file") or e.get("path"), e.get("args"), e.get("flags"),
+        e.get("daddr") or _extract_daddr(e.get("path")),
+        e.get("dport") or _extract_dport(e.get("path")),
+        e.get("family"),
+        e.get("clone_flags"), bool(e.get("dpdp_pii_flag", False)),
     ) for e in events]
 
     with DB_LOCK:
@@ -116,10 +145,10 @@ def insert_batch(events: list[dict]) -> int:
             INSERT INTO events (
                 id, ts, pid, ppid, uid, gid, comm, type,
                 score, alert, reasons, file, args, flags,
-                daddr, dport, family, clone_flags
+                daddr, dport, family, clone_flags, dpdp_pii_flag
             ) VALUES (
                 nextval('event_id_seq'), ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, rows)
     return len(rows)
@@ -270,9 +299,9 @@ def list_events(
     with DB_LOCK:
         rows  = DB_CONN.execute(f"""
             SELECT id, ts, received_at, pid, ppid, uid, comm, type,
-                   score, alert, reasons, file, args, daddr, dport
+                   score, alert, reasons, file, args, daddr, dport, dpdp_pii_flag
             FROM events {where_sql}
-            ORDER BY ts DESC LIMIT ? OFFSET ?
+            ORDER BY id DESC LIMIT ? OFFSET ?
         """, params).fetchdf()
         total = DB_CONN.execute(f"""
             SELECT COUNT(*) FROM events {where_sql}
@@ -282,6 +311,19 @@ def list_events(
                          "offset": offset, "events": df_to_json(rows)})
 
 
+@app.get("/events/since")
+def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500)):
+    """Fetch events with id > since_id, ordered by id ASC — for detection engine cursor."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT id, ts, received_at, pid, ppid, uid, comm, type,
+                   score, alert, reasons, file, args, daddr, dport, dpdp_pii_flag
+            FROM events WHERE id > ?
+            ORDER BY id ASC LIMIT ?
+        """, [since_id, limit]).fetchdf()
+    return JSONResponse({"events": df_to_json(rows), "max_id": int(rows["id"].max()) if len(rows) > 0 else since_id})
+
+
 @app.get("/alerts")
 def list_alerts(limit: int = Query(100, ge=1, le=500)):
     with DB_LOCK:
@@ -289,7 +331,7 @@ def list_alerts(limit: int = Query(100, ge=1, le=500)):
             SELECT id, ts, received_at, pid, ppid, comm, type,
                    score, reasons, file, daddr, dport
             FROM events WHERE alert=true
-            ORDER BY ts DESC LIMIT ?
+            ORDER BY id DESC LIMIT ?
         """, [limit]).fetchdf()
     return JSONResponse({"total": len(rows), "alerts": df_to_json(rows)})
 
@@ -308,6 +350,39 @@ def top_processes(limit: int = Query(10, ge=1, le=50)):
         """, [limit]).fetchdf()
     return JSONResponse({"processes": df_to_json(rows)})
 
+
+@app.get("/timeline")
+def event_timeline(minutes: int = Query(60, ge=1, le=1440)):
+    """Event rate per minute for the last N minutes — for dashboard graphs."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT
+                strftime(received_at, '%Y-%m-%dT%H:%M:00') AS minute,
+                COUNT(*) AS events,
+                COUNT(*) FILTER (WHERE alert=true) AS alerts
+            FROM events
+            WHERE received_at > (current_timestamp - INTERVAL '{minutes}' MINUTE)
+            GROUP BY minute
+            ORDER BY minute ASC
+        """.format(minutes=int(minutes))).fetchdf()
+    return JSONResponse({"timeline": df_to_json(rows)})
+
+@app.get("/top/detailed")
+def top_processes_detailed(limit: int = Query(50, ge=1, le=200)):
+    """Top processes with PID, last seen, alert count."""
+    with DB_LOCK:
+        rows = DB_CONN.execute("""
+            SELECT comm, pid,
+                   COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE alert=true) AS alerts,
+                   MAX(score) AS max_score,
+                   MAX(received_at) AS last_seen,
+                   COUNT(DISTINCT type) AS event_types
+            FROM events
+            GROUP BY comm, pid
+            ORDER BY total DESC LIMIT ?
+        """, [limit]).fetchdf()
+    return JSONResponse({"processes": df_to_json(rows)})
 
 @app.get("/events/pid/{pid}")
 def events_by_pid(pid: int):
@@ -328,7 +403,7 @@ def events_by_comm(comm: str, limit: int = Query(100, ge=1, le=500)):
         rows = DB_CONN.execute("""
             SELECT id, ts, received_at, pid, ppid, comm, type,
                    score, alert, reasons, file, daddr, dport
-            FROM events WHERE comm=? ORDER BY ts DESC LIMIT ?
+            FROM events WHERE comm=? ORDER BY id DESC LIMIT ?
         """, [comm, limit]).fetchdf()
     return JSONResponse({"comm": comm, "total": len(rows), "events": df_to_json(rows)})
 
@@ -344,6 +419,37 @@ def events_by_comm(comm: str, limit: int = Query(100, ge=1, le=500)):
 import pathlib as _pathlib
 
 CHAIN_STATE_FILE = _pathlib.Path.home() / "ghostlayer/data/chain_state.json"
+
+@app.get("/events/file-opens")
+def events_file_opens(
+    path_prefix: str = Query(..., description="File path prefix to filter"),
+    comm: str = Query(None),
+    since_id: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """Fetch open events matching a path prefix — for detection engine high-value file monitoring."""
+    try:
+        q = """
+            SELECT id, ts, received_at, pid, uid, comm, type, score, alert,
+                   reasons, file, args, daddr, dport, dpdp_pii_flag
+            FROM ghost_events
+            WHERE type = 'open'
+              AND file LIKE ?
+              AND id > ?
+        """
+        params = [path_prefix + "%", since_id]
+        if comm:
+            q += " AND comm = ?"
+            params.append(comm)
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = DB_CONN.execute(q, params).fetchall()
+        cols = ["id","ts","received_at","pid","uid","comm","type","score",
+                "alert","reasons","file","args","daddr","dport","dpdp_pii_flag"]
+        events = [dict(zip(cols, r)) for r in rows]
+        return {"events": events, "total": len(events)}
+    except Exception as e:
+        return {"events": [], "total": 0, "error": str(e)}
 
 @app.get("/chains")
 def get_chains():

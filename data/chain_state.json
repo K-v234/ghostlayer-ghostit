@@ -1,1 +1,0 @@
-{"chains": [{"chain_id": "9102bbda", "started_at": 1781800777.9844775, "duration_s": 10, "event_count": 2, "current_stage": "Discovery", "severity": "high", "escalating": false, "stages": ["Discovery"], "tactics": ["Discovery"], "techniques": ["T1056"]}], "highest_severity": "high"}

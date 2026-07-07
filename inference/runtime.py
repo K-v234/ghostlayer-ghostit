@@ -86,9 +86,9 @@ class GhostONNXRuntime:
         # Isolation Forest outputs: [labels, scores]
         # score_samples returns negative values — more negative = more anomalous
         if len(outputs) >= 2:
-            raw_score = float(outputs[1][0])
+            raw_score = float(outputs[1].flat[0])
         else:
-            raw_score = float(outputs[0][0])
+            raw_score = float(outputs[0].flat[0])
 
         # Normalize to 0-1
         score = float(max(0.0, min(1.0, 1.0 - (raw_score + 0.5))))

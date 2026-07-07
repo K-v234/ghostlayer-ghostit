@@ -1,0 +1,15 @@
+{
+  "start_date": "2026-06-26",
+  "days": [
+    {
+      "date": "2026-06-26",
+      "day": 1,
+      "total_alerts": 7,
+      "by_type": {
+        "canary_hit": 7
+      },
+      "false_positives_today": 0
+    }
+  ],
+  "false_positives": []
+}

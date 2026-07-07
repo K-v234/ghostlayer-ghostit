@@ -18,6 +18,7 @@ from typing import Iterator
 import grpc
 import ghost_pb2
 import ghost_pb2_grpc
+from comms.pq_interceptor import pq_interceptor
 
 log = logging.getLogger(__name__)
 
@@ -127,7 +128,8 @@ def start_grpc_server(
 ) -> grpc.Server:
     """Start gRPC server with mTLS."""
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=10),
+        futures.ThreadPoolExecutor(max_workers=10,
+        interceptors=[pq_interceptor]),
         options=[
             ("grpc.max_receive_message_length", 10 * 1024 * 1024),
             ("grpc.keepalive_time_ms",          30000),

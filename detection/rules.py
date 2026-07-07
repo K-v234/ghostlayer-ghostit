@@ -68,7 +68,7 @@ def check_event(event: dict) -> Optional[Detection]:
         )
 
     # R004 — Script interpreter making outbound connection
-    if type_ == "connect" and comm in ("perl","ruby","php") and event.get("daddr","") != "127.0.0.1":
+    if type_ == "connect" and comm in ("perl","ruby","php","python3","python","lua","node")             and daddr not in ("127.0.0.1", "::1", "", "1.0.0.127", "0.0.0.127", "11.0.0.127", "10.0.0.127"):
         return Detection(
             rule_id     = "R004",
             severity    = "high",
@@ -78,14 +78,36 @@ def check_event(event: dict) -> Optional[Detection]:
             evidence    = [event],
         )
 
-    # R005 — Shell making outbound connection
-    if type_ == "connect" and comm in ("bash","sh","dash","zsh"):
+    # R005 — Shell making outbound connection (any port, any IP)
+    if type_ == "connect" and comm in ("bash","sh","dash","zsh","fish","ksh"):
         return Detection(
             rule_id     = "R005",
             severity    = "high",
             title       = "Shell Network Activity",
             description = f"{comm} made outbound connection to {daddr}:{dport}",
             confidence  = 80,
+            evidence    = [event],
+        )
+
+    # R012 — Netcat/socat reverse shell tool making connection
+    if type_ == "connect" and comm in ("nc","ncat","netcat","socat","nmap")             and daddr not in ("127.0.0.1", "::1", ""):
+        return Detection(
+            rule_id     = "R012",
+            severity    = "critical",
+            title       = "Reverse Shell Tool Connection",
+            description = f"{comm} made outbound connection to {daddr}:{dport} — reverse shell tool",
+            confidence  = 95,
+            evidence    = [event],
+        )
+
+    # R013 — Auth brute force: multiple auth_failure from same IP
+    if type_ == "auth_failure":
+        return Detection(
+            rule_id     = "R013",
+            severity    = "high",
+            title       = "SSH Auth Failure",
+            description = f"SSH auth failure for user {event.get('args','')} from {daddr}",
+            confidence  = 70,
             evidence    = [event],
         )
 
@@ -124,6 +146,17 @@ def check_event(event: dict) -> Optional[Detection]:
             evidence    = [event],
         )
 
+    # R014 — Shell reading script from /tmp or /dev/shm (LOLBin dropper)
+    if type_ in ("open", "lsm_open") and comm in ("bash","sh","dash","zsh","fish")             and file_ and any(p in file_ for p in ("/tmp/", "/dev/shm/")):
+        return Detection(
+            rule_id     = "R014",
+            severity    = "high",
+            title       = "Shell Reading Script from Temp Directory",
+            description = f"{comm} opened {file_} — possible dropper execution",
+            confidence  = 85,
+            evidence    = [event],
+        )
+
     return None
 
 
@@ -157,8 +190,8 @@ def check_sequence(events: list[dict]) -> list[Detection]:
     # R010 — Download + execute pattern
     exec_files = [e.get("file","") for e in events if e.get("type") == "exec"]
     open_files = [e.get("file","") for e in events if e.get("type") == "open"]
-    if any("/tmp" in f or "/dev/shm" in f for f in open_files) and \
-       any("/tmp" in f or "/dev/shm" in f for f in exec_files):
+    if any("/tmp" in (f or "") or "/dev/shm" in (f or "") for f in open_files) and \
+       any("/tmp" in (f or "") or "/dev/shm" in (f or "") for f in exec_files):
         detections.append(Detection(
             rule_id     = "R010",
             severity    = "critical",

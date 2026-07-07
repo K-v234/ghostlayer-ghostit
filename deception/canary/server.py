@@ -25,6 +25,8 @@ from tokens  import (TokenRegistry, generate_fake_aws_key,
                      generate_fake_aws_secret, generate_fake_db_password,
                      generate_fake_api_key, generate_fake_ssh_key)
 from alerts  import AlertForwarder, CanaryAlert
+from pid_whitelist import whitelist as _pid_whitelist
+import time as _time
 from watcher import FileCanaryWatcher
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -37,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-CANARY_DIR = os.path.join(os.path.dirname(__file__), "canary_files")
+CANARY_DIR = "/var/lib/ghostit/canary"
 
 
 class CanaryServer:
@@ -46,20 +48,40 @@ class CanaryServer:
         self.registry      = TokenRegistry()
         self.forwarder     = AlertForwarder(pipeline_host, pipeline_port)
         self.watcher       = FileCanaryWatcher(self._on_file_hit)
+        self._startup_time = _time.time()  # Suppress alerts for 10s after startup
 
-    def _on_file_hit(self, filepath: str, event_type: str):
+    def _on_file_hit(self, filepath: str, event_type: str, pid: int = 0, comm: str = 'unknown'):
         """Called by inotify watcher when a canary file is accessed."""
+        # Suppress self-trigger: ignore hits within 30s of startup
+        if _time.time() - self._startup_time < 30.0:
+            return
+        # Suppress known OS telemetry processes
+        WHITELISTED_PROCS = {"ubuntu-insights", "ubuntu-insigh", "updatedb", "locate", "mlocate"}
+        import subprocess as _sp
+        try:
+            # Check recent processes for known scanners
+            pass  # Process name not available via inotify — handled by startup window
+        except Exception:
+            pass
+        # Whitelist known safe processes
+        WHITELISTED_PROCS = {"ubuntu-insights", "ubuntu-insigh", "updatedb",
+                              "locate", "mlocate", "systemd", "snapd", "aide"}
+        if comm in WHITELISTED_PROCS:
+            return
+
         token = self.registry.lookup_value(filepath)
         if not token:
             return
         self.registry.record_hit(token.token_id)
+        hit_by = f"{comm}(PID={pid})" if pid and comm != "unknown" else "local_process"
+        log.warning(f"CANARY HIT [file] {token.description} | trigger={event_type} | by={hit_by}")
         self.forwarder.send(CanaryAlert(
             token_id    = token.token_id,
             token_type  = "file",
             description = token.description,
-            hit_by      = "local_process",
+            hit_by      = hit_by,
             hit_method  = event_type,
-            extra       = {"filepath": filepath},
+            extra       = {"filepath": filepath, "pid": pid, "comm": comm},
         ))
 
     def _on_http_hit(self, path: str, client_ip: str, headers: dict):
@@ -108,12 +130,16 @@ class CanaryServer:
 
         for filename, content, description in files:
             filepath = os.path.join(CANARY_DIR, filename)
-            with open(filepath, "w") as f:
-                f.write(content)
-            os.chmod(filepath, 0o644)
+            if not os.path.exists(filepath):
+                # Only write if file doesn't exist — preserves inode across restarts
+                with open(filepath, "w") as f:
+                    f.write(content)
+                os.chmod(filepath, 0o644)
+                log.info(f"Deployed file canary: {filepath}")
+            else:
+                log.info(f"Canary file exists (inode preserved): {filepath}")
             self.registry.register("file", filepath, description)
             self.watcher.add_file(filepath)
-            log.info(f"Deployed file canary: {filepath}")
 
     def _deploy_http_canaries(self):
         """Register fake HTTP endpoints."""

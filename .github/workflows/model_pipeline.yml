@@ -32,8 +32,9 @@ jobs:
           MODEL_SIGNING_PUB: ${{ secrets.MODEL_SIGNING_PUB }}
         run: |
           mkdir -p ~/ghostlayer/data/model_keys
-          echo "$MODEL_SIGNING_KEY" > ~/ghostlayer/data/model_keys/model_signing.key
-          echo "$MODEL_SIGNING_PUB" > ~/ghostlayer/data/model_keys/model_signing.pub
+          # Decode base64-encoded PEM keys from secrets
+          echo "$MODEL_SIGNING_KEY" | base64 -d > ~/ghostlayer/data/model_keys/model_signing.key
+          echo "$MODEL_SIGNING_PUB" | base64 -d > ~/ghostlayer/data/model_keys/model_signing.pub
           chmod 600 ~/ghostlayer/data/model_keys/model_signing.key
 
       - name: Train + export + sign model

@@ -119,17 +119,34 @@ impl GhostEvent {
     fn from_raw(raw: &RawGhostEvent) -> Option<Self> {
         let comm = std::str::from_utf8(&raw.comm)
             .unwrap_or("").trim_end_matches('\0').to_string();
-        let path_str = std::str::from_utf8(&raw.path)
-            .unwrap_or("").trim_end_matches('\0').to_string();
         let et = EventType::from_u8(raw.event_type);
         let score = if raw.priority == 1 { 60 } else { 10 };
+
+        // For connect/sendto events, path[0..5] contains raw IP+port bytes
+        // not a UTF-8 string — decode as A.B.C.D:PORT
+        let path = match et {
+            EventType::Connect | EventType::TcpConnect | EventType::Sendto => {
+                let p = &raw.path;
+                if p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0 {
+                    None
+                } else {
+                    let port = ((p[4] as u16) << 8) | (p[5] as u16);
+                    Some(format!("{}.{}.{}.{}:{}", p[0], p[1], p[2], p[3], port))
+                }
+            }
+            _ => {
+                let path_str = std::str::from_utf8(&raw.path)
+                    .unwrap_or("").trim_end_matches('\0').to_string();
+                if path_str.is_empty() { None } else { Some(path_str) }
+            }
+        };
+
         Some(GhostEvent {
             ts: raw.timestamp_ns, pid: raw.pid, ppid: raw.parent_pid,
             uid: raw.uid, gid: raw.gid, comm,
             event_type: et.as_str().to_string(),
             priority: raw.priority,
-            path: if path_str.is_empty() { None } else { Some(path_str) },
-            flags: raw.flags, score,
+            path, flags: raw.flags, score,
         })
     }
 }
@@ -149,10 +166,12 @@ pub async fn run_event_loop(
     info!(path = %bpf_path, "Loading BPF object");
 
     // std channel: ring buffer thread -> async task
-    let (tx, rx) = mpsc::sync_channel::<serde_json::Value>(10000); // bounded — drop events if full
+    let (tx_critical, rx_critical) = mpsc::sync_channel::<serde_json::Value>(50000); // critical: large buffer, never drop
+    let (tx_standard, rx_standard) = mpsc::sync_channel::<serde_json::Value>(10000); // standard: drop if full
 
     // Spawn std thread for BPF polling (not async — avoids runtime conflict)
-    let tx_clone = tx.clone();
+    let tx_crit_clone = tx_critical.clone();
+    let tx_std_clone = tx_standard.clone();
     std::thread::spawn(move || {
         let mut builder = ObjectBuilder::default();
         let mut obj = match builder.open_file(&bpf_path) {
@@ -180,14 +199,15 @@ pub async fn run_event_loop(
 
         for map in &all_maps {
             let name = map.name().to_string_lossy().to_string();
-            if name == "critical_rb" || name == "standard_rb" {
-                let t = tx_clone.clone();
+            if name == "critical_rb" {
+                let t = tx_crit_clone.clone();
                 if let Err(e) = rb_builder.add(map, move |data: &[u8]| {
                     if data.len() >= RAW_EVENT_SIZE {
                         let raw = unsafe { &*(data.as_ptr() as *const RawGhostEvent) };
                         if let Some(event) = GhostEvent::from_raw(raw) {
                             if let Ok(json) = serde_json::to_value(&event) {
-                                let _ = t.try_send(json); // drop event if channel full — prevents memory explosion
+                                // Critical events: blocking send — never drop
+                                let _ = t.send(json);
                             }
                         }
                     }
@@ -195,7 +215,25 @@ pub async fn run_event_loop(
                 }) {
                     warn!("Failed to add {}: {}", name, e);
                 } else {
-                    info!("Subscribed to {}", name);
+                    info!("Subscribed to critical_rb");
+                }
+            } else if name == "standard_rb" {
+                let t = tx_std_clone.clone();
+                if let Err(e) = rb_builder.add(map, move |data: &[u8]| {
+                    if data.len() >= RAW_EVENT_SIZE {
+                        let raw = unsafe { &*(data.as_ptr() as *const RawGhostEvent) };
+                        if let Some(event) = GhostEvent::from_raw(raw) {
+                            if let Ok(json) = serde_json::to_value(&event) {
+                                // Standard events: non-blocking — drop if full
+                                let _ = t.try_send(json);
+                            }
+                        }
+                    }
+                    0
+                }) {
+                    warn!("Failed to add {}: {}", name, e);
+                } else {
+                    info!("Subscribed to standard_rb");
                 }
             }
         }
@@ -214,14 +252,29 @@ pub async fn run_event_loop(
         }
     });
 
-    // Async task: drain channel and forward to pipeline
+    // Async task: drain both channels and forward to pipeline
+    // Critical channel drained first on every tick — exec, privilege, memory events
     info!("Event forwarder ready");
     let mut count = 0u64;
 
     loop {
-        // Drain all available events
+        // Drain critical channel first — always
         loop {
-            match rx.try_recv() {
+            match rx_critical.try_recv() {
+                Ok(event) => {
+                    pipeline.forward(event).await?;
+                    count += 1;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    error!("Critical BPF channel disconnected");
+                    return Ok(());
+                }
+            }
+        }
+        // Drain standard channel
+        loop {
+            match rx_standard.try_recv() {
                 Ok(event) => {
                     pipeline.forward(event).await?;
                     count += 1;
@@ -231,7 +284,7 @@ pub async fn run_event_loop(
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    error!("BPF thread disconnected");
+                    error!("Standard BPF channel disconnected");
                     return Ok(());
                 }
             }
