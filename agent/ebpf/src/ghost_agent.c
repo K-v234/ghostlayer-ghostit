@@ -74,9 +74,22 @@ static const char *event_type_str(__u8 type)
 static void json_str(const char *src, char *dst, size_t dst_sz)
 {
     size_t di = 0;
-    for (size_t si = 0; src[si] && di < dst_sz - 3; si++) {
-        if (src[si] == '"' || src[si] == '\\') dst[di++] = '\\';
-        dst[di++] = src[si];
+    for (size_t si = 0; src[si] && di < dst_sz - 7; si++) {
+        unsigned char c = (unsigned char)src[si];
+        if (c == '"' || c == '\\') {
+            dst[di++] = '\\';
+            dst[di++] = (char)c;
+        } else if (c == '\n') {
+            dst[di++] = '\\'; dst[di++] = 'n';
+        } else if (c == '\r') {
+            dst[di++] = '\\'; dst[di++] = 'r';
+        } else if (c == '\t') {
+            dst[di++] = '\\'; dst[di++] = 't';
+        } else if (c < 0x20) {
+            di += (size_t)snprintf(dst + di, 7, "\\u%04x", c);
+        } else {
+            dst[di++] = (char)c;
+        }
     }
     dst[di] = '\0';
 }
@@ -88,6 +101,8 @@ static int handle_event(void *ctx, void *data, size_t size)
     char esc[MAX_FILENAME_LEN * 2] = {};
 
     json_str(e->path, esc, sizeof(esc));
+    char esc_comm[sizeof(e->comm) * 2] = {};
+    json_str(e->comm, esc_comm, sizeof(esc_comm));
 
     printf("{\"ts\":%llu,\"pid\":%u,\"tgid\":%u,\"ppid\":%llu,"
            "\"uid\":%u,\"gid\":%u,\"comm\":\"%s\","
@@ -96,7 +111,7 @@ static int handle_event(void *ctx, void *data, size_t size)
            e->pid, e->tgid,
            (unsigned long long)e->parent_pid,
            e->uid, e->gid,
-           e->comm,
+           esc_comm,
            event_type_str(e->event_type),
            e->priority,
            e->flags);

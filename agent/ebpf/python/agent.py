@@ -7,6 +7,7 @@ Ghost IT Agent — Pipeline Forwarder v3
 """
 import sys
 import json
+import os
 import socket
 import logging
 import argparse
@@ -132,6 +133,7 @@ def main():
         log.warning(f"Watchdog init failed: {_ex}")
 
     try:
+        sys.stdin.reconfigure(errors='replace')
         for line in sys.stdin:
             line = line.strip()
             if not line:
