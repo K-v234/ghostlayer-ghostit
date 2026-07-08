@@ -826,15 +826,16 @@ bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     if (event_id != ETW_NETWORK_CONNECT && event_id != ETW_NETWORK_ACCEPT)
         return false;
-
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_NET_CONNECT;
-    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"DestPort"));
-    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"SourcePort"));
-    out.uid = static_cast<uint16_t>(read_property_ulong(record, L"AddressFamily"));
-
-    std::string da = wstr_to_utf8(read_property_wstr(record, L"DestAddress"));
-    strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.comm) - 1);
+    // Confirmed via live schema dump: real property names are lowercase
+    // "daddr"/"dport"/"sport", not "DestAddress"/"DestPort"/"SourcePort"
+    // -- this Kernel-Network schema uses different naming than the
+    // standard MOF convention.
+    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"dport"));
+    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"sport"));
+    std::string da = wstr_to_utf8(read_property_wstr(record, L"daddr"));
+    strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.path) - 1);
     return true;
 }
 
