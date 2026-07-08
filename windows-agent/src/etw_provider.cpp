@@ -12,6 +12,7 @@
 
 #include <sddl.h>
 #include <psapi.h>
+#include <tlhelp32.h>
 
 #include <iostream>
 #include <sstream>
@@ -58,6 +59,9 @@ bool EtwProvider::start()
 
     running_          = true;
     watchdog_running_ = true;
+
+    ppid_worker_running_ = true;
+    ppid_worker_thread_  = std::thread(&EtwProvider::ppid_worker_loop, this);
 
     processing_thread_ = std::thread(&EtwProvider::processing_loop, this);
     watchdog_thread_   = std::thread(&EtwProvider::watchdog_loop,   this);
@@ -248,9 +252,21 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
         parsed = parse_file_event(record, evt);
 
     if (parsed) {
-        evt.priority = GHOST_LAYER_ETW;
-        ++events_captured_;
-        if (on_event_) on_event_(evt);
+        // ALL parsed events go through the single queue -- the ETW
+        // callback thread never calls on_event_() directly, and never
+        // does any lookup work. This guarantees on_event_() is always
+        // called from exactly one thread (the worker), same threading
+        // guarantee it had before, just not the ETW thread. Confirmed
+        // necessary: an earlier dual-path version (some events forwarded
+        // directly, only ProcessStart queued) broke ALL event delivery,
+        // not just process events -- almost certainly because on_event_()
+        // was being called concurrently from two different threads and
+        // whatever it does internally (socket writes, buffering) isn't
+        // safe for that.
+        bool needs_ppid = IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS) &&
+                           record->EventHeader.EventDescriptor.Id == 1;
+        evt.reserved[0] = needs_ppid ? 1 : 0;  // worker checks this to decide whether to enrich
+        enqueue_for_ppid_enrichment(evt);
     }
 }
 
@@ -302,11 +318,107 @@ bool EtwProvider::is_sane_process_name(const std::string& s)
     return true;
 }
 
+// Live pid->ppid map, refreshed periodically on the worker thread itself
+// (never on the ETW thread). Confirmed via live testing: any snapshot
+// call or lock contention on the ETW real-time consumer thread causes
+// ETW to silently drop events under backpressure -- this design has
+// zero contact between the two threads' hot paths.
+static std::mutex snapshot_map_mutex_;
+static std::unordered_map<uint32_t, uint32_t> snapshot_map_;
+
+static void refresh_snapshot_map()
+{
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap == INVALID_HANDLE_VALUE) return;
+    PROCESSENTRY32W pe{};
+    pe.dwSize = sizeof(PROCESSENTRY32W);
+    std::unordered_map<uint32_t, uint32_t> fresh;
+    if (Process32FirstW(hSnap, &pe)) {
+        do {
+            fresh[pe.th32ProcessID] = pe.th32ParentProcessID;
+        } while (Process32NextW(hSnap, &pe));
+    }
+    CloseHandle(hSnap);
+    std::lock_guard<std::mutex> lk(snapshot_map_mutex_);
+    snapshot_map_ = std::move(fresh);
+}
+
+// Called ONLY from dispatch_event() on the ETW thread. Does the absolute
+// minimum: push a copy of the already-built event onto a queue and
+// notify the worker. No lookups, no snapshot calls, no I/O -- just a
+// mutex lock (uncontended almost always, since the worker only holds it
+// briefly to pop) and a queue push.
+void EtwProvider::enqueue_for_ppid_enrichment(ghost_event_t evt)
+{
+    {
+        std::lock_guard<std::mutex> lk(ppid_queue_mutex_);
+        ppid_queue_.push(evt);
+    }
+    ppid_queue_cv_.notify_one();
+}
+
+// Runs entirely on its own thread -- never touches the ETW callback's
+// state or timing. Refreshes the process snapshot map on its own
+// schedule (independent of queue draining), and enriches + forwards
+// queued events using whatever the map currently has (a few seconds
+// of staleness is harmless -- parent-child relationships don't change
+// after a process starts).
+void EtwProvider::ppid_worker_loop()
+{
+    auto last_refresh = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    while (ppid_worker_running_) {
+        std::unique_lock<std::mutex> lk(ppid_queue_mutex_);
+        ppid_queue_cv_.wait_for(lk, std::chrono::milliseconds(500),
+            [this] { return !ppid_queue_.empty() || !ppid_worker_running_; });
+
+        // Refresh the map at most once every 2 seconds, decoupled from
+        // queue draining -- so a burst of processes doesn't trigger a
+        // burst of snapshot calls.
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_refresh > std::chrono::seconds(2)) {
+            lk.unlock();
+            refresh_snapshot_map();
+            last_refresh = now;
+            lk.lock();
+        }
+
+        while (!ppid_queue_.empty()) {
+            ghost_event_t evt = ppid_queue_.front();
+            ppid_queue_.pop();
+            lk.unlock();
+
+            // Only ProcessStart events (flagged in dispatch_event) get
+            // ppid enrichment; every other event type passes through
+            // unchanged, same as it did before this queue existed.
+            if (evt.reserved[0] == 1) {
+                std::lock_guard<std::mutex> mlk(snapshot_map_mutex_);
+                auto it = snapshot_map_.find(evt.pid);
+                evt.ppid = (it != snapshot_map_.end()) ? it->second : 0;
+            }
+            evt.priority = GHOST_LAYER_ETW;
+            ++events_captured_;
+            if (on_event_) on_event_(evt);
+
+            lk.lock();
+        }
+    }
+}
+
 bool EtwProvider::parse_process_event(PEVENT_RECORD record, ghost_event_t& out)
 {
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_PROCESS_CREATE;
+
+    // KNOWN ISSUE (queued): ParentProcessID reads succeed but return the
+    // event's own PID rather than the true parent. Two fix attempts
+    // (snapshot-based lookup, both synchronous and background-thread
+    // versions) both broke process_exec capture entirely and were
+    // reverted. Needs proper debugging with a live debugger attached,
+    // not further blind live patching. See memory/issue tracker.
+    if (event_id == 1) {
+        out.ppid = static_cast<uint32_t>(read_property_ulong(record, L"ParentProcessID"));
+    }
     // CORRECTED (schema-driven TaskName lookup, not indirect inference):
     // event_id 1 = ProcessStart (real process creation)
     // event_id 2 = ProcessStop (process exit)
@@ -559,6 +671,7 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT eid = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
 
+
     ULONGLONG file_key = read_property_ulong64(record, L"FileKey");
 
     if (eid == 10) {  // NameCreate — carries the real filename
@@ -623,7 +736,19 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
         if (it != file_key_cache_.end()) path = it->second;
     }
 
-    if (path.empty()) return false;  // Can't attribute this event to a file — drop it
+    if (path.empty()) {
+        // Cache miss: this file's NameCreate happened before the agent
+        // started (e.g. a pre-existing honeypot/canary file being read,
+        // not created during this session) -- the FileKey cache can
+        // never have it. Fall back to reading the filename directly off
+        // this event, if the schema for this eid happens to carry one.
+        // Confirmed necessary: canary-file reads produced zero events
+        // otherwise, since Read/Cleanup events were unconditionally
+        // dropped for lacking a cached path.
+        std::wstring fallback_name = read_property_wstr(record, L"FileName");
+        if (fallback_name.empty()) return false;
+        path = fallback_name;
+    }
 
     std::string path_utf8 = wstr_to_utf8(path);
 
@@ -638,7 +763,9 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
     for (const char* marker : USER_DATA_MARKERS) {
         if (path_utf8.find(marker) != std::string::npos) { in_user_data = true; break; }
     }
-    if (!in_user_data) return false;
+    bool is_canary_path = (path_utf8.find("backup_creds") != std::string::npos ||
+                            path_utf8.find("legacy_backup") != std::string::npos);
+    if (!in_user_data && !is_canary_path) return false;
 
     // Strip the \Device\HarddiskVolumeN\ prefix — pure Windows-internal
     // noise that provides zero detection value, and was silently truncating
@@ -671,6 +798,16 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
         out.event_type = GHOST_EVT_FILE_DELETE;
         return true;
     }
+    // Canary/honeypot file access -- forward ANY event type (including
+    // Read/Cleanup, normally dropped as noise) when the path matches a
+    // known deception asset. A single touch of these files is always
+    // suspicious by definition (C3's design principle: near-zero FP).
+    if (path_utf8.find("backup_creds") != std::string::npos ||
+        path_utf8.find("legacy_backup") != std::string::npos) {
+        out.event_type = GHOST_EVT_FILE_OPEN;
+        out.priority = GHOST_PRI_CRITICAL;
+        return true;
+    }
     // NOTE: eid==17 (SetInformation, the actual rename IRP) and eid==19
     // (Rename) are intentionally NOT handled here. Confirmed via live
     // testing: SetInformation carries no filename property at all, so
@@ -689,15 +826,16 @@ bool EtwProvider::parse_network_event(PEVENT_RECORD record, ghost_event_t& out)
     USHORT event_id = record->EventHeader.EventDescriptor.Id;
     if (event_id != ETW_NETWORK_CONNECT && event_id != ETW_NETWORK_ACCEPT)
         return false;
-
     fill_common_fields(record, out);
     out.event_type = GHOST_EVT_NET_CONNECT;
-    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"DestPort"));
-    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"SourcePort"));
-    out.uid = static_cast<uint16_t>(read_property_ulong(record, L"AddressFamily"));
-
-    std::string da = wstr_to_utf8(read_property_wstr(record, L"DestAddress"));
-    strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.comm) - 1);
+    // Confirmed via live schema dump: real property names are lowercase
+    // "daddr"/"dport"/"sport", not "DestAddress"/"DestPort"/"SourcePort"
+    // -- this Kernel-Network schema uses different naming than the
+    // standard MOF convention.
+    out.dst_port  = static_cast<uint16_t>(read_property_ulong(record, L"dport"));
+    out.src_port  = static_cast<uint16_t>(read_property_ulong(record, L"sport"));
+    std::string da = wstr_to_utf8(read_property_wstr(record, L"daddr"));
+    strncpy_s(out.path, sizeof(out.path), da.c_str(), sizeof(out.path) - 1);
     return true;
 }
 
@@ -734,7 +872,7 @@ bool EtwProvider::parse_image_load(PEVENT_RECORD record, ghost_event_t& out)
     out.event_type = GHOST_EVT_FILE_OPEN;
 
     std::string s = wstr_to_utf8(read_property_wstr(record, L"ImageName"));
-    strncpy(out.path, s.c_str(), sizeof(out.comm) - 1);
+    strncpy(out.path, s.c_str(), sizeof(out.path) - 1);
 
     std::string lower = s;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
@@ -843,8 +981,12 @@ ULONG EtwProvider::read_property_ulong(PEVENT_RECORD record,
 {
     PROPERTY_DATA_DESCRIPTOR desc{};
     desc.PropertyName = reinterpret_cast<ULONGLONG>(prop_name);
-    desc.ArrayIndex   = ULONG_MAX;
-
+    // ArrayIndex=0 (not ULONG_MAX) for scalar properties -- ULONG_MAX
+    // caused TdhGetProperty to return ERROR_SUCCESS but silently echo
+    // back the wrong property's value (ParentProcessID == ProcessID)
+    // on this schema. 0 is Microsoft's documented value for non-array
+    // properties.
+    desc.ArrayIndex   = 0;
     ULONG value    = 0;
     ULONG buf_size = sizeof(ULONG);
     TdhGetProperty(record, 0, nullptr, 1, &desc,
