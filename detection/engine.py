@@ -305,7 +305,7 @@ class DetectionEngine:
                 log.info(f"Active chains: {len(active)} | Highest severity: {self.chain_tracker.highest_severity()}")
                 import pathlib, json as _json
                 state = {"chains": active, "highest_severity": self.chain_tracker.highest_severity()}
-                pathlib.Path.home().joinpath("ghostlayer/data/chain_state.json").write_text(_json.dumps(state))
+                pathlib.Path(os.environ.get("CHAIN_STATE_PATH", os.path.expanduser("~/ghostlayer/data/chain_state.json"))).write_text(_json.dumps(state))
 
             send_to_pipeline(unique, self.p_host, self.p_port)
             # C17 Alert Correlation — wire detections into incident DB
