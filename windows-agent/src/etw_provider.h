@@ -39,6 +39,8 @@ extern "C" ULONG __stdcall TdhFormatProperty(
 #include <atomic>
 #include <functional>
 #include <unordered_map>
+#include <queue>
+#include <condition_variable>
 
 #include "ghost_event.h"
 
@@ -105,6 +107,10 @@ private:
     void dispatch_event(PEVENT_RECORD record);
 
     bool parse_process_event (PEVENT_RECORD record, ghost_event_t& out);
+    // Background-refreshed pid->ppid cache (see etw_provider.cpp) --
+    // avoids calling CreateToolhelp32Snapshot synchronously inside the
+    // ETW callback, which was confirmed to stall event delivery entirely.
+    void start_ppid_cache_thread();
 
     // Permanent process-identity resolution — Win32 API, not ETW payload
     // parsing. Stable since Vista, immune to ETW schema/version differences
@@ -173,6 +179,22 @@ private:
 
     std::thread        processing_thread_;
     std::thread        watchdog_thread_;
+
+    // Deferred ppid enrichment: ProcessStart events are queued here
+    // instead of being forwarded immediately from the ETW callback
+    // thread. A separate worker thread drains this queue, fills in
+    // ppid from a periodically-refreshed snapshot map, and forwards
+    // from there -- keeping the time-critical ProcessTrace() thread
+    // completely free of any blocking work (confirmed necessary: any
+    // extra work on that thread, even a lock wait, caused ETW to
+    // silently drop events under backpressure).
+    std::mutex              ppid_queue_mutex_;
+    std::queue<ghost_event_t> ppid_queue_;
+    std::condition_variable ppid_queue_cv_;
+    std::atomic<bool>       ppid_worker_running_{false};
+    std::thread             ppid_worker_thread_;
+    void ppid_worker_loop();
+    void enqueue_for_ppid_enrichment(ghost_event_t evt);
 
     mutable std::mutex session_mutex_;
 
