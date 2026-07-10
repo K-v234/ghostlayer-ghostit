@@ -192,3 +192,16 @@ body { background: #070b14; color: #c8d4e8; font-family: -apple-system, BlinkMac
 
 /* ── Nav badge ── */
 .nav-badge { background: #ff3b3b; color: #fff; font-size: 0.62rem; font-weight: 700; padding: 1px 5px; border-radius: 10px; margin-left: auto; min-width: 18px; text-align: center; }
+
+/* ===== Constellation redesign additions ===== */
+.const-hero { display: grid; grid-template-columns: 220px 1fr; gap: 20px; margin-bottom: 16px; }
+.const-graph { background: #0a0c14; border-radius: 10px; border: 1px solid #1c1f2a; }
+.const-node-label { font-family: monospace; font-size: 8px; fill: #8a90a8; }
+.const-stream { font-family: monospace; font-size: 12px; }
+.const-stream-row { display: flex; gap: 8px; margin-bottom: 4px; }
+.const-link-tag { font-family: monospace; font-size: 10px; color: #4a4f66; margin-left: 6px; }
+.ep-graph-wrap { background: #0a0c14; border-radius: 10px; border: 1px solid #1c1f2a; padding: 12px; margin-top: 10px; }
+.chain-graph-wrap { background: #0a0c14; border-radius: 10px; border: 1px solid #1c1f2a; padding: 12px; margin-bottom: 12px; }
+.ensemble-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.ensemble-card { background: #111428; border-radius: 8px; padding: 10px 12px; }
+.ensemble-card p:first-child { color: #5a6180; font-size: 10px; margin: 0 0 6px; }

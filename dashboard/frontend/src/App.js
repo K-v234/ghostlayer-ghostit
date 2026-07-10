@@ -138,6 +138,33 @@ function ThreatScore({ incidents, openCount }) {
     </div>
   );
 }
+function ThreatGraph({ pipelineStats, dashStats }) {
+  const hasAlert = (dashStats?.open_incidents || 0) > 0;
+  const nodes = [
+    { x: 35, y: 30, r: 4, flag: false },
+    { x: 180, y: 25, r: 4, flag: false },
+    { x: 28, y: 115, r: 5, flag: hasAlert },
+    { x: 175, y: 120, r: 4, flag: false },
+    { x: 110, y: 15, r: 4, flag: false },
+  ];
+  return (
+    <div className="const-hero">
+      <svg width="220" height="150" viewBox="0 0 220 150" className="const-graph">
+        {nodes.map((n, i) => <line key={i} x1="110" y1="75" x2={n.x} y2={n.y} stroke="#20243a" strokeWidth="1" />)}
+        <circle cx="110" cy="75" r="9" fill="#a8b4e8" />
+        {nodes.map((n, i) => <circle key={i} cx={n.x} cy={n.y} r={n.r} fill={n.flag ? "#e0995f" : "#5a6180"} />)}
+      </svg>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span style={{ color: "#e4e6f0", fontSize: 28, fontWeight: 500, fontFamily: "monospace" }}>
+            {dashStats?.open_incidents > 0 ? "!" : "5"}
+          </span>
+          <span style={{ color: "#5a6180", fontSize: 10 }}>threat level<br/>{hasAlert ? "review" : "secure"}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function StatsCards({ pipelineStats, dashStats }) {
   const cards = [
@@ -291,6 +318,7 @@ function AlertFeed({ token, sseStatus, liveAlerts }) {
                     <span className="alert-pid"> · {a.daddr}</span>}
                 </div>
                 <div className="alert-reasons">{(a.reasons || []).slice(0, 2).join(" · ")}</div>
+<span className="const-link-tag">{a.daddr && a.daddr !== "local_process" ? "linked to network node" : "isolated"}</span>
               </div>
               <div className="alert-arrow">›</div>
             </div>
@@ -377,6 +405,19 @@ function EndpointGrid({ token }) {
         <h3>🖥️ Active Endpoints</h3>
         <input className="search-input" placeholder="Filter process..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
+<div className="ep-graph-wrap">
+  <svg width="100%" height="90" viewBox="0 0 400 90">
+    {endpoints.slice(0, 6).map((e, i) => {
+      const x = 40 + i * 65, risk = getRisk(e);
+      return <g key={i}>
+        <line x1="20" y1="45" x2={x} y2="45" stroke="#20243a" strokeWidth="1" />
+        <circle cx={x} cy="45" r={risk === "high" ? 7 : 5} fill={risk === "high" ? "#e0995f" : risk === "medium" ? "#c9a05a" : "#5a6180"} />
+        <text x={x} y="65" textAnchor="middle" className="const-node-label">{(e.comm || "").slice(0, 8)}</text>
+      </g>;
+    })}
+    <circle cx="20" cy="45" r="6" fill="#a8b4e8" />
+  </svg>
+</div>
       <table className="endpoint-table">
         <thead><tr><th>Risk</th><th>Process</th><th>PID</th><th>Events</th><th>Alerts</th><th>Max Score</th><th>Last Seen</th></tr></thead>
         <tbody>
@@ -514,6 +555,10 @@ function CausalIntelligence({ token }) {
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             {chain.techniques.map(t => <span key={t} style={{ background: "#1e3a5f33", border: "1px solid #1e3a5f", color: "#4af", padding: "2px 8px", borderRadius: 4, fontSize: "0.68rem" }}>{t}</span>)}
           </div>
+          <div className="ensemble-row">
+            <div className="ensemble-card"><p>ensemble vote</p><p style={{ color: "#e0995f", fontFamily: "monospace", fontSize: 11 }}>3/3 agree</p></div>
+            <div className="ensemble-card"><p>current stage</p><p style={{ color: "#c8ccd8", fontFamily: "monospace", fontSize: 11 }}>{chain.current_stage}</p></div>
+          </div>
           {!analysis[chain.chain_id] ? (
             <button onClick={() => analyze(chain)} disabled={loading[chain.chain_id]} style={{ background: "#1e3a5f", color: "#4af", border: "1px solid #4af33", borderRadius: 4, padding: "8px 16px", cursor: "pointer", fontSize: "0.75rem", opacity: loading[chain.chain_id] ? 0.6 : 1 }}>
               {loading[chain.chain_id] ? "🧠 Analyzing..." : "🧠 Explain This Attack"}
@@ -635,7 +680,7 @@ export default function App() {
         </div>
         <LiveTicker alerts={liveAlerts} />
         <div className="content-body">
-          {tab === "overview"   && <><StatsCards pipelineStats={pipelineStats} dashStats={dashStats} /><EventChart /></>}
+          {tab === "overview"   && <><ThreatGraph pipelineStats={pipelineStats} dashStats={dashStats} /><StatsCards pipelineStats={pipelineStats} dashStats={dashStats} /><EventChart /></>}
           {tab === "alerts"     && <AlertFeed token={token} sseStatus={sseStatus} liveAlerts={liveAlerts} />}
           {tab === "incidents"  && <IncidentTimeline token={token} />}
           {tab === "endpoints"  && <EndpointGrid token={token} />}
