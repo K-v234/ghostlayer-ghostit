@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
-const API      = "http://127.0.0.1:8001/api";
-const PIPELINE = "http://127.0.0.1:8000";
+const API      = "http://3.7.6.9:8001/api";
+const PIPELINE = "http://3.7.6.9:8000";
 
 function Login({ onLogin }) {
   const [user, setUser] = useState("admin");
@@ -524,7 +524,7 @@ function CausalIntelligence({ token }) {
   const [analysis, setAnalysis] = useState({});
   const [loading,  setLoading]  = useState({});
   useEffect(() => {
-    const f = () => fetch("http://127.0.0.1:8000/chains").then(r => r.json()).then(d => setChains(d.chains || [])).catch(() => {});
+    const f = () => fetch("http://3.7.6.9:8000/chains").then(r => r.json()).then(d => setChains(d.chains || [])).catch(() => {});
     f(); const id = setInterval(f, 10000); return () => clearInterval(id);
   }, []);
   const analyze = async (chain) => {
