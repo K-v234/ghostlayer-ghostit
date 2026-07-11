@@ -341,6 +341,15 @@ def handle_client(conn, addr):
                 try:
                     batch = json.loads(line)
                     if not isinstance(batch, list): batch = [batch]
+                    # Tag each event with the connecting machine's real
+                    # source IP -- "host" field only distinguishes
+                    # platform (windows/linux), not individual machines,
+                    # so multiple Windows or Linux boxes were previously
+                    # indistinguishable in the data. source_ip gives
+                    # genuine per-machine identity for free, using the
+                    # TCP connection's own address, no agent-side changes needed.
+                    for ev in batch:
+                        ev["source_ip"] = addr[0]
                     pending.extend(batch)
                 except Exception as ex:
                     stats["errors"] += 1
