@@ -82,6 +82,17 @@ class CausalEngine:
             s.close()
         except Exception as e:
             log.error(f"Alert forward error: {e}")
+    def _watchlist_pid(self, pid: int):
+        # Feedback loop: tell the pipeline this PID is confirmed
+        # malicious so C2's downstream behavioral scoring elevates
+        # suspicion on its subsequent actions, instead of scoring each
+        # new event from this confirmed-bad entity from scratch.
+        try:
+            req = urllib.request.Request(
+                f"{self.PIPELINE_API}/watchlist/{pid}", method="POST")
+            urllib.request.urlopen(req, timeout=3)
+        except Exception as e:
+            log.error(f"Watchlist call error: {e}")
 
     def process_events(self, events: list):
         for event in events:
@@ -112,6 +123,7 @@ class CausalEngine:
             }
             log.critical(f"[C4] Invariant violated: {violation.name} pid={pid}")
             self._forward_alert(alert)
+            self._watchlist_pid(pid)
             return alert
         result = self.ensemble.classify(subgraph)
         if result.label.name == "MALICIOUS" and result.confidence >= 0.75:
@@ -123,6 +135,7 @@ class CausalEngine:
                             f"severity:{result.severity}", result.note]
             }
             log.warning(f"[C4] GNN malicious: pid={pid} confidence={result.confidence:.2f}")
+            self._watchlist_pid(pid)
             self._forward_alert(alert)
             return alert
         return None

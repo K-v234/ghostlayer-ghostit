@@ -34,6 +34,16 @@ PARQUET_DIR  = None
 LEGACY_DB    = None
 HOT_BUFFER   = deque(maxlen=100_000)
 HOT_LOCK     = threading.Lock()
+
+# C4 feedback loop: PIDs C4 has confirmed malicious (via invariant
+# violation or high-confidence GNN classification) get added here.
+# Subsequent events from the same PID get an elevated score boost,
+# closing the loop between causal reasoning and behavioral scoring --
+# previously C4's confirmed findings never influenced C2's downstream
+# scoring of the same entity's later actions.
+WATCHLIST      = {}  # {pid: expiry_timestamp}
+WATCHLIST_LOCK = threading.Lock()
+WATCHLIST_TTL_SEC = 600  # 10 minutes elevated scrutiny after confirmation
 EVENT_SEQ    = 0
 SEQ_LOCK     = threading.Lock()
 _flush_pending = []
@@ -204,6 +214,20 @@ def enrich_batch(events):
             e = {**e, "score": 0, "alert": False, "reasons": [], "_ghost_internal": True}
         e["id"] = next_id()
         e["received_at"] = int(time.time())
+        # C4 feedback loop: if this PID was recently confirmed malicious
+        # by causal reasoning, boost its score so C2's downstream
+        # behavioral scoring treats its subsequent actions with elevated
+        # suspicion instead of scoring each new event from scratch.
+        pid = int(e.get("pid", 0) or 0)
+        if pid:
+            with WATCHLIST_LOCK:
+                expiry = WATCHLIST.get(pid)
+                if expiry and time.time() < expiry:
+                    original_score = e.get("score") or 0
+                    e["score"] = min(100, original_score + 30)
+                    e["watchlisted"] = True
+                elif expiry:
+                    del WATCHLIST[pid]  # expired, clean up
         # Tag host based on agent field
         agent = e.get("agent", "")
         if agent == "windows-c9":
@@ -426,6 +450,24 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.post("/watchlist/{pid}")
+def add_to_watchlist(pid: int):
+    # C4 feedback loop endpoint: causal engine calls this when it
+    # confirms a PID is malicious (invariant violation or high-confidence
+    # GNN classification). Subsequent events from this PID get elevated
+    # scoring for WATCHLIST_TTL_SEC, closing the loop so C2's downstream
+    # scoring benefits from C4's confirmed finding instead of treating
+    # each new event from the same confirmed-bad entity as fresh/unknown.
+    with WATCHLIST_LOCK:
+        WATCHLIST[pid] = time.time() + WATCHLIST_TTL_SEC
+    log.info(f"[C4-feedback] PID {pid} added to watchlist for {WATCHLIST_TTL_SEC}s")
+    return {"status": "watchlisted", "pid": pid, "ttl_sec": WATCHLIST_TTL_SEC}
+@app.get("/watchlist")
+def get_watchlist():
+    now = time.time()
+    with WATCHLIST_LOCK:
+        active = {pid: round(exp - now, 1) for pid, exp in WATCHLIST.items() if exp > now}
+    return {"watchlisted_pids": active}
 @app.get("/events/since")
 def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
                   host: str = Query(None)):
