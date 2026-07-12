@@ -148,14 +148,22 @@ class CausalEngine:
         log.info(f"C4 Causal Engine running — poll={self.POLL_INTERVAL}s")
         seen_pids = set()
         while True:
-            events = self._fetch_events()
-            if events:
-                self.process_events(events)
-                for event in events:
-                    pid = event.get("pid", 0)
-                    if pid > 0 and pid not in seen_pids:
-                        seen_pids.add(pid)
-                        self.analyze_pid(pid)
+            try:
+                log.info(f"[DIAG] Fetching events, offset={self._offset}")
+                events = self._fetch_events()
+                log.info(f"[DIAG] Fetched {len(events)} events")
+                if events:
+                    self.process_events(events)
+                    new_pids = 0
+                    for event in events:
+                        pid = event.get("pid", 0)
+                        if pid > 0 and pid not in seen_pids:
+                            seen_pids.add(pid)
+                            new_pids += 1
+                            self.analyze_pid(pid)
+                    log.info(f"[DIAG] Analyzed {new_pids} new pids")
+            except Exception as e:
+                log.error(f"[DIAG] Loop error: {e}", exc_info=True)
             time.sleep(self.POLL_INTERVAL)
 
 causal_engine = CausalEngine()
