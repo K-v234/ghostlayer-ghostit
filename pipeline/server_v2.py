@@ -501,7 +501,25 @@ def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, l
             if host is None or e.get("host") == host:
                 events.append(e)
     events.sort(key=lambda x: x.get("id", 0))
-    events = events[:limit]
+    # Per-host fetch quota: without this, a single high-volume source
+    # (Linux eBPF telemetry, confirmed ~50,000 events/minute) statistically
+    # crowds out lower-volume sources (Windows ETW, comparatively rare)
+    # from every poll cycle's shared limit -- confirmed root cause of the
+    # detection engine (and C4) never seeing Windows ransomware test data
+    # despite it genuinely reaching the pipeline. Splitting the limit
+    # evenly per distinct host guarantees each platform gets fetch
+    # bandwidth regardless of how noisy any other platform is.
+    if host is None and len(events) > limit:
+        hosts_present = sorted(set(e.get("host", "unknown") for e in events))
+        per_host_limit = max(1, limit // len(hosts_present))
+        balanced = []
+        for h in hosts_present:
+            h_events = [e for e in events if e.get("host") == h]
+            balanced.extend(h_events[-per_host_limit:])
+        balanced.sort(key=lambda x: x.get("id", 0))
+        events = balanced[:limit]
+    else:
+        events = events[:limit]
     max_id = max((e.get("id", 0) for e in events), default=since_id)
     return JSONResponse({"events": hot_to_result(events), "max_id": max_id})
 
