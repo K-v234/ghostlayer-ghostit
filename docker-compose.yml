@@ -42,6 +42,17 @@ services:
       pipeline:
         condition: service_healthy
     restart: unless-stopped
+  causal-engine:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.causal
+    container_name: ghostit-causal
+    volumes:
+      - ghostit-data:/data
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    restart: unless-stopped
 
   dashboard:
     build:

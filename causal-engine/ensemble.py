@@ -44,7 +44,7 @@ def _load_modules():
     _store_mod = load("store",      f"{base}/store.py")
 
 class CausalEngine:
-    PIPELINE_API  = "http://127.0.0.1:8000"
+    PIPELINE_API  = os.environ.get("PIPELINE_API", "http://127.0.0.1:8000")
     POLL_INTERVAL = 15
     MIN_SCORE     = 40
     SUBGRAPH_SIZE = 5
