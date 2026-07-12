@@ -212,6 +212,18 @@ def enrich_batch(events):
         # Detection alerts (type=detection) always pass through unchanged — filtered at display layer
         if e.get("type") != "detection" and _is_ghost_it_process(int(e.get("pid", 0) or 0)):
             e = {**e, "score": 0, "alert": False, "reasons": [], "_ghost_internal": True}
+        # Default scoring for agents that don't self-score (Windows C9
+        # sends no score field on raw file/process/network events --
+        # only C15/other detectors re-score and forward specific
+        # alerts). Without this, score stays None forever for most
+        # Windows telemetry, making it invisible to any score-filtered
+        # consumer (C4's min_score=40, /events min_score queries, etc.)
+        # -- confirmed root cause of C4 never seeing Windows ransomware
+        # test events despite them being genuinely present. Matches the
+        # Linux agent's own priority-based default (60 for critical-ring
+        # events, 10 otherwise) so both platforms are scored consistently.
+        if e.get("score") is None:
+            e["score"] = 60 if e.get("priority") == 1 else 10
         e["id"] = next_id()
         e["received_at"] = int(time.time())
         # C4 feedback loop: if this PID was recently confirmed malicious
