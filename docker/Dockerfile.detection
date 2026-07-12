@@ -9,4 +9,5 @@ CMD ["python3", "detection/engine.py", \
      "--api", "http://ghostit-pipeline:8000", \
      "--poll-interval", "10", \
      "--pipeline-host", "ghostit-pipeline", \
-     "--pipeline-port", "9000"]
+     "--pipeline-port", "9000", \
+     "--log-level", "DEBUG"]
