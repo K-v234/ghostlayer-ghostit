@@ -327,6 +327,13 @@ void PipelineForwarder::buffer_to_disk(const std::string& json_event)
     }
     ofs << json_event << "\n";
     ofs.flush();
+    if (ofs.fail()) {
+        std::cerr << "[GhostIT C9] ERROR: write to offline buffer failed at "
+                  << OFFLINE_BUFFER_PATH << "\n";
+    } else {
+        std::cerr << "[GhostIT C9] Buffered 1 event to disk ("
+                  << OFFLINE_BUFFER_PATH << ")\n";
+    }
 }
 
 void PipelineForwarder::flush_offline_buffer()
