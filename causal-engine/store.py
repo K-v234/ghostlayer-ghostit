@@ -15,7 +15,12 @@ from typing import List, Optional
 
 log = logging.getLogger(__name__)
 
-DB_PATH = os.path.expanduser("~/ghostlayer/data/provenance.db")
+# Configurable via env var for container compatibility -- same pattern
+# as CHAIN_STATE_PATH in detection/engine.py. Docker mounts data at
+# /data (see docker-compose.yml volumes), not ~/ghostlayer/data which
+# only exists on developer machines.
+DB_PATH = os.environ.get("PROVENANCE_DB_PATH",
+    os.path.expanduser("~/ghostlayer/data/provenance.db"))
 
 class ProvenanceStore:
     """

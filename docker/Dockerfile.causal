@@ -4,4 +4,5 @@ COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir duckdb
 ENV PIPELINE_API=http://ghostit-pipeline:8000
+ENV PROVENANCE_DB_PATH=/data/provenance.db
 CMD ["python3", "causal-engine/ensemble.py"]
