@@ -37,7 +37,11 @@ def _load_modules():
         sys.modules[name] = mod
         spec.loader.exec_module(mod)
         return mod
-    base = os.path.expanduser("~/ghostlayer/causal-engine")
+    # Resolve relative to this file's own location, not a hardcoded
+    # home-directory path -- the previous ~/ghostlayer/causal-engine
+    # assumption broke in Docker, where code lives at /app/causal-engine
+    # instead of matching any developer's home directory layout.
+    base = os.path.dirname(os.path.abspath(__file__))
     _graph_mod = load("graph",      f"{base}/graph.py")
     _inv_mod   = load("invariants", f"{base}/invariants.py")
     _gnn_mod   = load("graphsage",  f"{base}/models/graphsage.py")
