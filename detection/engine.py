@@ -312,7 +312,15 @@ class DetectionEngine:
             try:
                 if not hasattr(self, '_correlator'):
                     import sys as _sys
-                    _sys.path.insert(0, os.path.expanduser("~/ghostlayer/alert-engine"))
+                    # Same class of bug as C4's hardcoded ~/ghostlayer path
+                    # (fixed earlier) -- resolves relative to this file's
+                    # own location instead of assuming a fixed home
+                    # directory that doesn't exist in Docker (/app, not
+                    # /root/ghostlayer).
+                    _alert_engine_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "alert-engine")
+                    _sys.path.insert(0, _alert_engine_dir)
                     from correlator import AlertCorrelator
                     self._correlator = AlertCorrelator()
                 from incidents import RawAlert
