@@ -509,13 +509,36 @@ def events_since(since_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, l
     # despite it genuinely reaching the pipeline. Splitting the limit
     # evenly per distinct host guarantees each platform gets fetch
     # bandwidth regardless of how noisy any other platform is.
+    # Priority tiers: within each host's slice, rare high-signal event
+    # types (renames, deletes, process spawns -- the actual attack
+    # signals) get guaranteed bandwidth ahead of routine, high-volume
+    # noise (writes, opens -- background sync, DLL loads, etc.). Matches
+    # the industry-standard priority-queue telemetry pattern (rare,
+    # high-value events reserved a lane so they are never starved out by
+    # volume, regardless of how much routine traffic competes for the
+    # same budget). Confirmed real-world need: OneDrive sync alone
+    # generates ~100 file_write events per fetch window on a single
+    # machine, which would otherwise crowd out the handful of
+    # file_rename/.locked events a real ransomware attack produces.
+    HIGH_SIGNAL_TYPES = {"file_rename", "file_delete", "process_exec", "net_connect"}
+    def _split_by_priority(evts):
+        high = [e for e in evts if (e.get("type") or "") in HIGH_SIGNAL_TYPES]
+        low  = [e for e in evts if (e.get("type") or "") not in HIGH_SIGNAL_TYPES]
+        return high, low
     if host is None and len(events) > limit:
         hosts_present = sorted(set(e.get("host", "unknown") for e in events))
         per_host_limit = max(1, limit // len(hosts_present))
         balanced = []
         for h in hosts_present:
             h_events = [e for e in events if e.get("host") == h]
-            balanced.extend(h_events[-per_host_limit:])
+            high, low = _split_by_priority(h_events)
+            # High-signal events always included in full (up to the
+            # host's whole quota if needed); low-signal fills whatever
+            # room remains.
+            take_high = high[-per_host_limit:]
+            remaining = max(0, per_host_limit - len(take_high))
+            take_low  = low[-remaining:] if remaining else []
+            balanced.extend(take_high + take_low)
         balanced.sort(key=lambda x: x.get("id", 0))
         events = balanced[:limit]
     else:
