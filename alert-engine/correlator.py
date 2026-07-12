@@ -138,7 +138,8 @@ class AlertCorrelator:
         try:
             from datetime import datetime, timezone, timedelta
             import duckdb, os
-            db_path = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
+            db_path = os.environ.get("INCIDENTS_DB_PATH",
+                os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb"))
             cutoff = datetime.now(timezone.utc) - timedelta(hours=4)
             with duckdb.connect(db_path) as con:
                 result = con.execute(

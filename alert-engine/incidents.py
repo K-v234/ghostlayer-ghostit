@@ -2,6 +2,7 @@
 # alert-engine/incidents.py
 # GhostIT C17 — Incident Storage (DuckDB)
 # Ghost Layer Technologies · Chennai · June 2026
+import os
 
 import json
 import uuid
@@ -12,7 +13,12 @@ import duckdb
 from weights import AlertSource, Severity
 from apt_window import now_utc
 
-DB_PATH = "/home/keerthivahanan/ghostlayer/data/ghostit_incidents.duckdb"
+# Configurable via env var for container compatibility -- same pattern
+# as CHAIN_STATE_PATH, PROVENANCE_DB_PATH fixed earlier. Was a fully
+# literal hardcoded path tied to one developer's username, which
+# obviously doesn't exist in Docker (/app, not /home/keerthivahanan).
+DB_PATH = os.environ.get("INCIDENTS_DB_PATH",
+    "/home/keerthivahanan/ghostlayer/data/ghostit_incidents.duckdb")
 
 @dataclass
 class RawAlert:
