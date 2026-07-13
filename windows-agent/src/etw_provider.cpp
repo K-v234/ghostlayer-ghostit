@@ -701,7 +701,34 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
             file_key_cache_[file_key] = name;
         }
 
-        if (!is_rename) return false;  // First time seeing this file — just cache it, not a security event
+        // Extension-based fallback: even if the cache never observed
+        // this file's original name (e.g. right after an agent restart,
+        // when the cache is cold -- confirmed real gap via live testing),
+        // a NameCreate landing on a known ransomware extension is itself
+        // a strong signal worth forwarding, without needing the
+        // before/after comparison. This closes the post-restart blind
+        // window documented in RENAME-DETECTION-CACHE-FRAGILITY-01.
+        if (!is_rename) {
+            std::string check_ext_path = wstr_to_utf8(name);
+            size_t dot = check_ext_path.find_last_of('.');
+            if (dot != std::string::npos) {
+                std::string ext = check_ext_path.substr(dot);
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                static const char* RANSOMWARE_EXT_FALLBACK[] = {
+                    ".locked", ".encrypted", ".enc", ".crypto", ".crypt",
+                    ".locky", ".cerber", ".wncry", ".wcry",
+                };
+                bool matches_ransom_ext = false;
+                for (const char* rext : RANSOMWARE_EXT_FALLBACK) {
+                    if (ext == rext) { matches_ransom_ext = true; break; }
+                }
+                if (!matches_ransom_ext) return false;  // genuinely first-time-seen, not suspicious
+                // else: fall through and treat as rename-worth-reporting,
+                // even without a prior cached name for comparison.
+            } else {
+                return false;
+            }
+        }
 
         // Emit a real FILE_RENAME event with the NEW name, going through
         // the same user-data scoping and trust-scoring as every other
