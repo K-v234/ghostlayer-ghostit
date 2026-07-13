@@ -16,5 +16,32 @@
     "severity": "LOW",
     "owner": "Dhakshin",
     "date_found": "2026-07-08"
+  },
+  {
+    "id": "VOLUME-IMBALANCE-01",
+    "component": "C1/C9",
+    "title": "Linux eBPF agent generates disproportionately high event volume vs Windows ETW agent",
+    "detail": "Confirmed on cloud pipeline (July 11): Linux agent's 46 active probes flood the recent-events buffer, pushing Windows events out of default query windows within minutes. Not a data-loss bug -- Windows events remain retrievable via since_id=0 anchored search. Worth investigating whether all 46 Linux probes are capturing genuinely useful signal (e.g. sendmsg/gdbus noise) vs over-broad capture. Relevant for storage/query cost at scale with many customer endpoints.",
+    "severity": "LOW",
+    "owner": "unassigned",
+    "date_found": "2026-07-11"
+  },
+  {
+    "id": "C17-CORRELATION-VERIFIED-01",
+    "component": "C17",
+    "title": "C17 alert correlation confirmed working end-to-end after fixing 2 hardcoded-path bugs",
+    "detail": "Following the earlier correlator import-path fix (relative to file location), a second hardcoded path was found in production: incidents.py had a fully literal path tied to one developer's username, and correlator.py had an unrelated second os.path.expanduser('~/ghostlayer/...') call not covered by the earlier fix. Both fixed via INCIDENTS_DB_PATH env var set to /data/ghostit_incidents.duckdb in Dockerfile.detection. Verified end-to-end with a real C14_LOLBIN_CHAIN alert (Explorer spawning PowerShell, confidence 85): log showed 'C17 incident updated: e07885d2', and direct DB query confirmed a correctly-populated incident record with proper MITRE ATT&CK mapping (Execution / T1059 Command and Scripting Interpreter), correct alert_count, and a readable summary. C17 is now confirmed functional, not just import-clean.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "RENAME-DETECTION-CACHE-FRAGILITY-01",
+    "component": "windows-agent/C9",
+    "title": "file_rename detection depends on an in-memory FileKey cache that resets on every agent restart -- explains why renames worked early in the session but stopped later",
+    "detail": "Root cause identified (July 12, after ruling out scoring, fetch starvation, connection leak, and buffer-path bugs -- all real, all fixed, none were this specific issue): etw_provider.cpp file_key_cache_ only flags a rename as detected if the SAME FileKey was previously seen with a DIFFERENT name, within the CURRENT agent process's lifetime. The cache is purely in-memory, no persistence. Every service reinstall/restart (dozens happened this session) creates a fresh empty cache. When a test creates a file with New-Item then immediately renames it, if the agent restarted between or around those operations, the fresh cache sees the first NameCreate and just caches it as baseline (not flagged as rename) -- the actual rename is never detected because the cache never had the before state. Matches the observed pattern: early tests (finaltest, bigtest) worked with a warmed-up cache; later tests failed after multiple reinstalls for other fixes reset the cache each time. NOT a bug in the rename-detection logic itself -- it is an architectural fragility with no persistence across restarts. Real-world impact: only matters in the brief window right after an agent restart -- continuous sessions detect renames correctly, as proven by early clean runs. Fix options for later: (a) persist the FileKey cache to disk, (b) treat NameCreate as rename-relevant on first sight if extension matches known ransomware extensions (bypasses needing a cached before state), or (c) document as a narrow post-restart limitation similar to the ETW-TI/ELAM gap.",
+    "severity": "MEDIUM",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
   }
 ]
