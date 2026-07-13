@@ -106,5 +106,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-13"
+  },
+  {
+    "id": "CANARY-FILE-LIVE-FIRE-VERIFIED-01",
+    "component": "C3",
+    "title": "File canary tokens confirmed working end-to-end via live-fire test",
+    "detail": "Reading a fake canary file (id_rsa, deployed at /var/lib/ghostit/canary/) triggered THREE separate correctly-labeled alerts capturing the full interaction lifecycle: file_open, file_read, and file_close_write, all score 100, all correctly identifying the specific decoy ('fake SSH private key'). Confirms C3's inotify-based FileCanaryWatcher works genuinely end-to-end in the live cloud deployment. Combined with CANARY-LIVE-FIRE-VERIFIED-01 (HTTP canaries), both of C3's file+HTTP deception trap types are now confirmed working with real evidence, not just present as code. Remaining untested C3 components: MTD (explicitly 0% per its own README, scaffolding only) and the separate PolymorphicTokenGenerator's callback/validation flow.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-13"
   }
 ]
