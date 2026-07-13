@@ -43,5 +43,59 @@
     "severity": "MEDIUM",
     "owner": "unassigned",
     "date_found": "2026-07-12"
+  },
+  {
+    "id": "HONEYPOT-KVM-01",
+    "component": "C3",
+    "title": "Firecracker honeypots require hardware virtualization (KVM) -- not available on budget cloud tiers or nested VMware setups",
+    "detail": "Confirmed on AWS Lightsail Mumbai ($12/mo tier): 0 vmx/svm CPU flags, no /dev/kvm device -- Firecracker cannot run at all, not a config issue but a fundamental tier limitation. Also affects any nested-virtualization dev environment. Real architectural constraint: any customer's management server on similar budget/virtualized infrastructure would hit the same wall. Needs either (a) a KVM-capable instance tier for production deployments, or (b) an alternative honeypot sandboxing approach that doesn't require hardware virtualization (gVisor was previously rejected for timing-fingerprint reasons per Tech Spec 3.1).",
+    "severity": "MEDIUM",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "WINDOWS-SCORE-GAP-01",
+    "component": "C9/C4",
+    "title": "Windows agent events never carried a baseline score, unlike Linux -- blocked C4 causal reasoning from seeing raw Windows telemetry (FIXED)",
+    "detail": "Root cause: Linux Rust agent computes score=60/10 by priority for every event; Windows C9 agent sent no score field at all on raw file/process/network events. Server-side e.get('score') with no default returned None. Only detector-flagged alerts ever got a real score on Windows. Fixed: pipeline now assigns default priority-based scoring for any event arriving with score=None, matching Linux agent's own default. Verified with live data post-fix.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "DETECTION-ENGINE-STARVED-01",
+    "component": "detection/engine.py",
+    "title": "Detection engine capped at 500 events/10s poll cycle -- structurally starved by ~50k events/min Linux volume, causing Windows events to be crowded out (FIXED)",
+    "detail": "Pipeline Parquet flush logs showed ~50,000 events/min Linux eBPF volume vs 500-event/10s (3000/min) detection engine fetch capacity. Fixed via per-host fetch quota in /events/since (split limit evenly across distinct hosts present), then extended with priority-tier fetch (file_rename/file_delete/process_exec/net_connect guaranteed bandwidth over file_write/file_open within each host's slice). Verified: event counts per fetch cycle dropped from hundreds to single digits/tens after fix.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "C4-NOT-DEPLOYED-01",
+    "component": "C4",
+    "title": "Causal reasoning engine was never part of the Docker Compose stack -- never ran in the cloud deployment (FIXED)",
+    "detail": "docker-compose.yml had no causal-engine service defined at all. C4 had been locally tested in prior sessions but never containerized/deployed. Added Dockerfile.causal (CPU-only PyTorch) and a causal-engine service entry. Also fixed two hardcoded ~/ghostlayer home-directory path bugs (module loader, provenance store DB path) that broke container startup, both made configurable via env vars. Verified: C4 now running continuously, confirmed via logs and live event processing.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "C4-WATCHLIST-E2E-UNVERIFIED-01",
+    "component": "C4/C15",
+    "title": "C4 watchlist feedback loop built and functional, but full automatic end-to-end trigger from a real ransomware alert not cleanly isolated",
+    "detail": "Built a pipeline-side watchlist (POST/GET /watchlist/{pid}) and wired C4's analyze_pid() to call it on invariant violation or high-confidence GNN classification -- closing the loop so C2 scoring gets more sensitive to confirmed-bad entities. Manually tested working (POST call correctly adds/expires PIDs). Full automatic trigger from a live Windows ransomware test was affected by several unrelated bugs found the same session (scoring gap, fetch starvation, connection leak, buffer path) -- by the time those were all fixed, session time was exhausted before a final clean end-to-end confirmation run.",
+    "severity": "MEDIUM",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
+  },
+  {
+    "id": "RENAME-EVENTS-MISSING-01",
+    "component": "windows-agent/C9",
+    "title": "file_rename events intermittently absent -- root cause found in RENAME-DETECTION-CACHE-FRAGILITY-01",
+    "detail": "Extensive investigation (ruled out scoring, fetch starvation, connection leak, buffer-path bugs -- all real, all fixed, none were this specific issue) led to the actual root cause, documented separately in RENAME-DETECTION-CACHE-FRAGILITY-01: the in-memory FileKey rename-detection cache has no persistence across agent restarts. See that entry for full detail and fix options.",
+    "severity": "MEDIUM",
+    "owner": "unassigned",
+    "date_found": "2026-07-12"
   }
 ]
