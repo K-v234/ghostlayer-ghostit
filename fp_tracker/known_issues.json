@@ -97,5 +97,14 @@
     "severity": "MEDIUM",
     "owner": "unassigned",
     "date_found": "2026-07-12"
+  },
+  {
+    "id": "CANARY-LIVE-FIRE-VERIFIED-01",
+    "component": "C3",
+    "title": "HTTP canary tokens confirmed working end-to-end via live-fire test",
+    "detail": "Direct HTTP GET to a fake canary endpoint (/.env) on the deployed canary service (port 8080) immediately triggered two correctly-formed alerts: a raw canary_hit:http event (score 100) and a correlated R001 'Canary Token Triggered' detection with proper MITRE ATT&CK mapping (Discovery/T1056, confidence 100). Confirms the deception layer's simplest, most-used trap type (HTTP fake endpoints) works genuinely end-to-end in the live cloud deployment, not just as unverified code. Also separately confirmed working: PolymorphicTokenGenerator.create_token()/render() produces real, format-valid fake credentials (e.g. AKIA... AWS-format key). Note: two separate canary implementations exist in the codebase -- tokens.py/server.py (simpler, actively used, confirmed working here) and token_generator.py/token_validator.py (polymorphic, format-valid credential rendering, generation confirmed working but callback/validation flow not yet tested).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-13"
   }
 ]
