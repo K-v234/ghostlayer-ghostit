@@ -59,7 +59,9 @@ def _save_sessions(sessions: dict):
 
 _SESSIONS: dict[str, dict] = _load_sessions()
 SESSION_TTL = timedelta(hours=8)
-_USERS = {"admin": bcrypt.hashpw(b"ghostit-admin-2026", bcrypt.gensalt()).decode()}
+# V1.5: replaced with tenancy.py's load_tenancy_config() -- see login()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tenancy import load_tenancy_config, filter_events_by_customer, add_customer, add_user
 security = HTTPBearer(auto_error=False)
 
 def _verify_session(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -89,13 +91,20 @@ async def login(request: Request):
     body = await request.json()
     username = body.get("username", "")
     password = body.get("password", "").encode()
-    hashed = _USERS.get(username, "").encode()
+    # V1.5 multi-tenant: users now live in tenancy.json, not the old
+    # hardcoded _USERS dict -- each user has a customer_id so their
+    # session automatically scopes to only their own data. customer_id
+    # "_all_" is the internal super-admin (Ghost Layer staff) role.
+    tenancy_config = load_tenancy_config()
+    user = tenancy_config["users"].get(username)
+    hashed = user["password_hash"].encode() if user else b""
     if not hashed or not bcrypt.checkpw(password, hashed):
         raise HTTPException(401, "Invalid credentials")
     token = secrets.token_hex(32)
     _SESSIONS[token] = {"username": username,
+                        "customer_id": user["customer_id"],
                         "expires": datetime.now(timezone.utc) + SESSION_TTL}
-    log.info(f"Login: {username}")
+    log.info(f"Login: {username} (customer: {user['customer_id']})")
     _save_sessions(_SESSIONS)
     return {"token": token, "expires_in": int(SESSION_TTL.total_seconds())}
 
@@ -192,7 +201,13 @@ async def stream_alerts(
 
 @app.get("/api/alerts")
 def get_alerts(limit: int = 100, session=Depends(_verify_session)):
-    return {"total": 0, "alerts": _fetch_alerts(limit)}
+    # V1.5 multi-tenant: scope results to the logged-in user's customer.
+    # customer_id "_all_" (Ghost Layer internal/super-admin) bypasses
+    # filtering entirely.
+    alerts = _fetch_alerts(limit)
+    customer_id = session.get("customer_id", "_all_")
+    alerts = filter_events_by_customer(alerts, customer_id)
+    return {"total": len(alerts), "alerts": alerts}
 
 @app.get("/api/incidents")
 def get_incidents(limit: int = 50, session=Depends(_verify_session)):
