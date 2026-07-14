@@ -142,5 +142,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-14"
+  },
+  {
+    "id": "V2-SIEM-EXPORT-CEF-VERIFIED-01",
+    "component": "V2/SIEM",
+    "title": "SIEM export (CEF format) built and verified end-to-end -- V2 milestone",
+    "detail": "Built integrations/siem/cef_formatter.py (converts Ghost IT alerts to valid CEF:0 format, correct severity mapping 0-10, proper field escaping) and siem_exporter.py (polls pipeline /alerts endpoint, forwards new alerts via UDP/TCP syslog to a configured SIEM host). Verified end-to-end with a real canary trigger: two genuine alerts (canary_hit + correlated R001 detection) correctly converted to valid CEF and received by a test UDP listener, with all fields properly populated (MITRE ATT&CK tactic/technique, severity, evidence, score). This is the actual feature format understood by Microsoft Sentinel, ArcSight, and many other SIEM platforms natively. Not yet done: LEEF format (QRadar) and Splunk CIM-compliant JSON export -- CEF chosen first for broadest single-format compatibility. Also not yet done: making siem_exporter.py a persistent systemd service, and adding TLS/authenticated syslog for production use (currently plain UDP/TCP, fine for demo/pilot but needs hardening before real customer deployment).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
