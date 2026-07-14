@@ -169,5 +169,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-14"
+  },
+  {
+    "id": "MTD-WIREGUARD-VERIFIED-01",
+    "component": "C3/MTD",
+    "title": "wireguard_announce.py confirmed working -- real WireGuard interface created and tested",
+    "detail": "Installed wireguard-tools, generated real keypair, created and brought up a genuine wg-ghostit interface (10.99.0.1/24) matching what the code expects. Tested WireGuardAnnouncer.announce() end-to-end: correctly detected the live WireGuard interface and confirmed 'WireGuard available -- MTD announcements encrypted' rather than falling back to dev-mode logging. This completes verification of all three MTD components (rotator.py, topology_decoys.py, wireguard_announce.py) -- MTD is now fully code-complete AND tested, closing the final gap from MTD-BUILD-GAP-VERIFIED-01.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
