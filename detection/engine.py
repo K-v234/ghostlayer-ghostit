@@ -53,11 +53,20 @@ def send_to_pipeline(detections: list, host: str, port: int):
     events = []
     for d in detections:
         tag = get_mitre_tag(d.rule_id)
+        # V1.5: tag whether this rule has a real incident response
+        # playbook available -- dashboard uses this to show/hide the
+        # "View Playbook" action, fetching the actual content from
+        # GET /api/playbook/{rule_id} rather than duplicating the
+        # playbook text into every single alert event.
+        has_playbook = d.rule_id in ("C15_RANSOMWARE", "C14_LOLBIN",
+                                       "C19_LKRG_INTEGRITY", "canary_hit")
         reasons = [
             d.rule_id,
             d.title,
             f"confidence:{d.confidence}",
         ]
+        if has_playbook:
+            reasons.append("playbook:available")
         if tag:
             reasons += [
                 f"tactic:{tag.tactic}",
