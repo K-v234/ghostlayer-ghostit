@@ -115,5 +115,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-13"
+  },
+  {
+    "id": "C19-LKRG-INSTALLED-VERIFIED-01",
+    "component": "C19",
+    "title": "LKRG (kernel integrity monitoring) successfully built from source, loaded, and verified running -- V1.5 milestone",
+    "detail": "Built lkrg.ko from official lkrg-org/lkrg GitHub source (matching kernel headers 7.0.0-27-generic already installed). Clean compile, loaded via insmod, confirmed active via lsmod and dmesg: 'LKRG initialized successfully', with kint_validate(1)/kint_enforce(2) and pint_validate(1)/pint_enforce(2) both active (kernel + process integrity validation and enforcement). Full tunable interface confirmed at /proc/sys/lkrg/ including pcfi_enforce/validate (Process Control-Flow Integrity -- functionally similar protective value to C18's intended ROP-chain detection, via a kernel-native mechanism that doesn't require hardware CPU tracing passthrough). Manually triggered a live integrity scan (echo 1 > trigger), confirmed real freeze/scan/restart cycle completes cleanly. This is real, running kernel-level protection, not scaffolding. Not yet done: wiring LKRG's dmesg/kernel-log output into the Ghost IT pipeline as structured events (currently just visible via dmesg, not yet forwarded as detection alerts).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
