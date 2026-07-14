@@ -62,6 +62,8 @@ SESSION_TTL = timedelta(hours=8)
 # V1.5: replaced with tenancy.py's load_tenancy_config() -- see login()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tenancy import load_tenancy_config, filter_events_by_customer, add_customer, add_user
+sys.path.insert(0, os.path.expanduser("~/ghostlayer/playbooks"))
+from incident_playbooks import get_playbook_summary
 security = HTTPBearer(auto_error=False)
 
 def _verify_session(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -209,6 +211,11 @@ def get_alerts(limit: int = 100, session=Depends(_verify_session)):
     alerts = filter_events_by_customer(alerts, customer_id)
     return {"total": len(alerts), "alerts": alerts}
 
+@app.get("/api/playbook/{rule_id}")
+def get_playbook_endpoint(rule_id: str, session=Depends(_verify_session)):
+    # V1.5: structured incident response playbook for this rule_id --
+    # what happened, why it matters, and concrete steps to take.
+    return get_playbook_summary(rule_id)
 @app.get("/api/incidents")
 def get_incidents(limit: int = 50, session=Depends(_verify_session)):
     try:
