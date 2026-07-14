@@ -160,5 +160,14 @@
     "severity": "HIGH",
     "owner": "unassigned",
     "date_found": "2026-07-14"
+  },
+  {
+    "id": "V1.5-PLAYBOOKS-E2E-VERIFIED-01",
+    "component": "V1.5",
+    "title": "Incident response playbooks confirmed working fully end-to-end via live-fire test",
+    "detail": "Complete chain verified with real data: canary trigger -> canary_hit alert generated with 'playbook:available' tag (fixed a real gap where canary_hit bypassed detection/engine.py's tagging logic entirely, added tagging directly at the canary source in deception/canary/alerts.py) -> real login via /api/auth/login -> real session token -> GET /api/playbook/canary_hit returned complete, substantive playbook content (what happened, why it matters, immediate/investigation/containment steps, false-positive checks). This closes V1.5's incident response playbooks item with genuine proof, not just code existing untested.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
