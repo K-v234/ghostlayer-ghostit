@@ -263,6 +263,16 @@ class DetectionEngine:
                         confidence  = 85,
                         evidence    = [e],
                     ))
+                # C19: LKRG kernel integrity violations
+                if e.get("type") == "kernel_integrity" and e.get("score", 0) >= 80:
+                    detections.append(Detection(
+                        rule_id     = "C19_LKRG_INTEGRITY",
+                        severity    = "critical",
+                        title       = "Kernel integrity violation detected",
+                        description = f"LKRG flagged a real kernel/process integrity concern: {e.get('file', '')[:120]}",
+                        confidence  = 90,
+                        evidence    = [e],
+                    ))
 
             by_pid: dict[int, list] = {}
             for e in new_events:
