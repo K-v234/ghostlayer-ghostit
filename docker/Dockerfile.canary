@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 COPY deception/canary/ ./deception/canary/
+COPY deception/mtd/ ./deception/mtd/
 
 CMD ["python3", "deception/canary/server.py", \
      "--http-port", "8080", \
