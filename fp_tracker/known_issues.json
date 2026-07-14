@@ -133,5 +133,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-13"
+  },
+  {
+    "id": "C19-LKRG-PIPELINE-INTEGRATION-VERIFIED-01",
+    "component": "C19",
+    "title": "LKRG kernel events now flow into Ghost IT pipeline via lkrg_watcher.py -- V1.5 C19 fully functional end-to-end",
+    "detail": "Built agent/lkrg_watcher.py: tails dmesg, classifies LKRG lines by concern level (kernel/process integrity violations, tainting, module verification failures = score 80; routine lifecycle = score 20), forwards as structured kernel_integrity events to the pipeline via the same TCP protocol used by C1/C9. Verified end-to-end: real LKRG boot events (including a genuine concerning event -- 'module verification failed: signature and/or required key missing') correctly landed in the pipeline with proper scoring, agent='lkrg-c19', type='kernel_integrity'. C19 is now a complete, working pipeline: kernel module (lkrg.ko) -> dmesg -> watcher -> pipeline -> (available to C2/C4/detection like any other event source). Not yet done: making lkrg_watcher.py a proper systemd service for persistent operation (currently run manually), and wiring specific LKRG violation types into dedicated detection rules rather than generic scoring.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
