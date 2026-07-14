@@ -49,6 +49,13 @@ class AlertForwarder:
                 f"canary_hit:{alert.token_type}",
                 f"method:{alert.hit_method}",
                 alert.description,
+                "playbook:available",  # V1.5: canary_hit always has a
+                                        # real playbook (see playbooks/
+                                        # incident_playbooks.py) -- tag
+                                        # it here directly since this
+                                        # event never routes through
+                                        # detection/engine.py's own
+                                        # tagging logic.
             ],
             "file":        alert.description,
             "daddr":       alert.hit_by,
