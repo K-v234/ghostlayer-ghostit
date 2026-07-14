@@ -115,5 +115,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-13"
+  },
+  {
+    "id": "MTD-BUILD-GAP-VERIFIED-01",
+    "component": "C3",
+    "title": "MTD (Moving Target Deception) was code-complete but never included in Docker build -- fixed and core logic verified",
+    "detail": "All three MTD files (rotator.py, topology_decoys.py, wireguard_announce.py) were internally marked STATUS: 100% complete, but the folder README incorrectly said 0%, and Dockerfile.canary never copied deception/mtd/ into the container at all. Fixed both (added COPY line, corrected README). Verified working: DeceptionAsset rotation scheduling (HMAC-jittered, correct due/not-due behavior confirmed with real timing tests) and TopologyDecoyManager initialization (real methods present: emit_arp_decoy, emit_mdns_decoy, flood_decoys, generate_decoys). wireguard_announce.py NOT yet tested -- requires a configured WireGuard interface (wg-ghostit) which does not exist on the current cloud deployment; needs separate infrastructure setup before live testing.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-13"
   }
 ]
