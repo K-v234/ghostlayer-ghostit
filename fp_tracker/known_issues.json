@@ -151,5 +151,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-14"
+  },
+  {
+    "id": "C18-PMU-INTEL-PT-BLOCKED-01",
+    "component": "C18",
+    "title": "C18 (PMU/Intel PT hardware exploit detection) is structurally blocked on all current infrastructure -- needs bare-metal or reconfigured VM before development can begin",
+    "detail": "Confirmed via direct testing (July 14): neither the AWS Lightsail cloud server nor the local VMware development VM expose Intel PT hardware tracing to the guest OS, despite the underlying physical CPU (i7-13700HX) genuinely supporting it. cat /proc/cpuinfo shows no intel_pt flag, /sys/bus/event_source/devices/intel_pt/ does not exist, and perf list shows no PMU/intel_pt events on either environment. This is the same structural category as HONEYPOT-KVM-01 (Firecracker/KVM) -- a hypervisor/cloud-tier passthrough limitation, not a code or config bug. Options for unblocking: (a) dual-boot or dedicated bare-metal Linux machine, (b) reconfigure VMware to pass through Intel PT specifically, or (c) an EC2 instance with confirmed nested-virtualization/PMU passthrough (newer EC2 tiers like C8i/M8i/R8i added nested virtualization in Feb 2026, worth checking if PMU/Intel PT passthrough is included). C18 development genuinely cannot begin meaningfully until one of these is resolved -- distinct from C19 (LKRG) which was successfully built and deployed today with no hardware dependency.",
+    "severity": "HIGH",
+    "owner": "unassigned",
+    "date_found": "2026-07-14"
   }
 ]
