@@ -136,6 +136,116 @@ PLAYBOOKS: dict[str, Playbook] = {
         ],
     ),
 
+    "R002": Playbook(
+        rule_id="R002",
+        title="Shadow File Access (Credential Theft Attempt)",
+        severity_baseline="CRITICAL",
+        what_happened="A shell process (bash, sh, dash, zsh) directly read "
+            "/etc/shadow, the file containing password hashes for every "
+            "local user account on the system.",
+        why_it_matters="/etc/shadow has no legitimate reason to be read "
+            "directly by a shell -- normal authentication happens through "
+            "system libraries, not manual file access. This is a strong, "
+            "specific signal of an attacker attempting to extract password "
+            "hashes for offline cracking.",
+        immediate_steps=[
+            "Identify the process (comm/pid in alert) and the user context "
+            "it ran as -- was this root, or a compromised lower-privilege "
+            "account that escalated?",
+            "If the process is still running, terminate it and isolate the "
+            "host.",
+        ],
+        investigation_steps=[
+            "Check what shell history/commands led to this read -- was it "
+            "an interactive attacker session, or an automated script?",
+            "Review recent authentication logs for anomalous logins that "
+            "may have preceded this.",
+        ],
+        containment_steps=[
+            "Force a password reset for all local accounts on the affected "
+            "host -- assume hashes were exfiltrated.",
+            "Review sudo/root access logs for privilege escalation.",
+        ],
+        false_positive_checks=[
+            "Legitimate system administration (user management scripts, "
+            "backup tools) occasionally read this file -- verify this "
+            "matches a known, authorized admin action before escalating.",
+        ],
+    ),
+
+    "R003": Playbook(
+        rule_id="R003",
+        title="Reverse Shell Connection",
+        severity_baseline="CRITICAL",
+        what_happened="A process connected to a port commonly used for "
+            "reverse shells (4444, 1337, 31337, 9001, 6666, or 8888) -- "
+            "ports with no common legitimate service, strongly associated "
+            "with attacker command-and-control channels.",
+        why_it_matters="A successful reverse shell gives an attacker "
+            "interactive, real-time control over the compromised host -- "
+            "this is often the moment initial access becomes active "
+            "exploitation.",
+        immediate_steps=[
+            "Isolate the host from the network immediately to cut the "
+            "attacker's active connection.",
+            "Identify and terminate the connecting process.",
+        ],
+        investigation_steps=[
+            "Review the causal chain (C4) to identify how this process "
+            "started -- what was the initial access vector?",
+            "Check for any commands or files created during the window "
+            "this connection was active.",
+        ],
+        containment_steps=[
+            "Treat this host as actively compromised -- full forensic "
+            "review before returning to service.",
+            "Block the remote IP/port at the network perimeter.",
+        ],
+        false_positive_checks=[
+            "Some legitimate services occasionally use uncommon high ports "
+            "-- verify the destination IP isn't a known, trusted internal "
+            "or partner service before treating as confirmed malicious.",
+        ],
+    ),
+
+    "R004": Playbook(
+        rule_id="R004",
+        title="Interpreter Outbound Connection",
+        severity_baseline="HIGH",
+        what_happened="A scripting language interpreter (python, perl, "
+            "ruby, php, lua, node) made an outbound network connection -- "
+            "a common pattern for fileless malware, data exfiltration "
+            "scripts, or command-and-control beaconing.",
+        why_it_matters="Scripting interpreters are frequently used by "
+            "attackers for quick, disposable tooling that doesn't require "
+            "compiling a binary -- this pattern alone isn't definitive, but "
+            "combined with an unexpected destination it's a meaningful "
+            "signal.",
+        immediate_steps=[
+            "Check the destination IP/port -- is this a known, expected "
+            "service the application legitimately talks to?",
+            "If unexpected, block the destination and isolate the process.",
+        ],
+        investigation_steps=[
+            "Review what script/file the interpreter was executing (check "
+            "command-line args if captured).",
+            "Check if this interpreter process was spawned by a normal "
+            "application or something else in the process tree.",
+        ],
+        containment_steps=[
+            "If confirmed malicious, isolate the host and search for "
+            "the source script/file for removal.",
+        ],
+        false_positive_checks=[
+            "This rule fires on ANY interpreter making ANY outbound "
+            "connection except localhost -- legitimate applications "
+            "(monitoring agents, package managers, API clients written in "
+            "these languages) will trigger this constantly. Cross-check "
+            "against known application behavior before treating as "
+            "suspicious.",
+        ],
+    ),
+
     "canary_hit": Playbook(
         rule_id="canary_hit",
         title="Honeypot/Canary Triggered",

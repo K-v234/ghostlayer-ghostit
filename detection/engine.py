@@ -59,7 +59,8 @@ def send_to_pipeline(detections: list, host: str, port: int):
         # GET /api/playbook/{rule_id} rather than duplicating the
         # playbook text into every single alert event.
         has_playbook = d.rule_id in ("C15_RANSOMWARE", "C14_LOLBIN",
-                                       "C19_LKRG_INTEGRITY", "canary_hit")
+                                       "C19_LKRG_INTEGRITY", "canary_hit",
+                                       "R002", "R003", "R004")
         reasons = [
             d.rule_id,
             d.title,
