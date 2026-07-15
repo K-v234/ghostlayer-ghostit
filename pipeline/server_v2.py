@@ -462,6 +462,133 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.get("/hunt")
+def threat_hunt(
+    file_pattern:  Optional[str] = Query(None, description="Substring match on file/path field"),
+    comm_pattern:  Optional[str] = Query(None, description="Substring match on process name"),
+    event_type:    Optional[str] = Query(None),
+    host:          Optional[str] = Query(None, description="windows | linux"),
+    min_score:     int           = Query(0, ge=0, le=100),
+    since_id:      int           = Query(0, ge=0, description="Only events after this ID"),
+    since_minutes: Optional[int] = Query(None, ge=1, description="Only events from the last N minutes (real time range, not just ID)"),
+    watchlist_only: bool          = Query(False, description="Only PIDs currently on C4's watchlist -- cross-reference confirmed-malicious entities"),
+    limit:         int           = Query(200, ge=1, le=2000),
+):
+    """
+    V3 Threat Hunting: flexible, multi-criteria historical search.
+    Unlike /events (single-field exact matches, recent buffer only),
+    this supports substring pattern matching across file paths and
+    process names, combined with type/host/score filters -- the
+    actual query shape a real investigation needs ("show me anything
+    touching /etc/shadow", "find all mshta activity", "what did this
+    host do in the last hour"). Searches across both HOT_BUFFER and
+    per-host buffers (same merge pattern as /events/since) to avoid
+    missing events evicted from the shared hot buffer under high
+    Linux eBPF volume.
+    """
+    with HOT_LOCK:
+        base = list(HOT_BUFFER)
+    with HOST_LOCK:
+        for buf in HOST_BUFFERS.values():
+            base.extend(buf)
+    seen_ids = set()
+    results = []
+    cutoff_ns = None
+    if since_minutes:
+        cutoff_ns = (time.time() - since_minutes * 60) * 1e9
+    watchlisted_pids = set()
+    if watchlist_only:
+        with WATCHLIST_LOCK:
+            now = time.time()
+            watchlisted_pids = {pid for pid, exp in WATCHLIST.items() if exp > now}
+    for e in base:
+        eid = e.get("id", 0)
+        if eid in seen_ids or eid <= since_id:
+            continue
+        seen_ids.add(eid)
+        if e.get("score", 0) < min_score:
+            continue
+        if host and e.get("host") != host:
+            continue
+        if event_type and (e.get("type") or e.get("event_type")) != event_type:
+            continue
+        if file_pattern and file_pattern.lower() not in str(e.get("file", "")).lower():
+            continue
+        if comm_pattern and comm_pattern.lower() not in str(e.get("comm", "")).lower():
+            continue
+        if cutoff_ns is not None and e.get("ts", 0) < cutoff_ns:
+            continue
+        if watchlist_only and e.get("pid") not in watchlisted_pids:
+            continue
+        results.append(e)
+    results.sort(key=lambda x: x.get("id", 0), reverse=True)
+    total = len(results)
+    results = results[:limit]
+    return JSONResponse({
+        "total": total, "limit": limit,
+        "query": {
+            "file_pattern": file_pattern, "comm_pattern": comm_pattern,
+            "event_type": event_type, "host": host, "min_score": min_score,
+        },
+        "events": hot_to_result(results),
+    })
+@app.get("/hunt/anomalies")
+def hunt_anomalies(
+    host:  Optional[str] = Query(None),
+    limit: int           = Query(20, ge=1, le=100),
+):
+    """
+    V3 Statistical anomaly hunting: find processes with unusually high
+    event volume, WITHOUT needing a known-bad pattern to search for --
+    the genuine hunting technique (vs. pattern matching) of finding
+    outliers first, then investigating why. A process generating
+    10x the typical event rate is worth a look regardless of whether
+    it matches any existing detection rule -- this is how real
+    threat hunters find genuinely novel activity that signature/rule
+    -based detection would miss entirely.
+    """
+    with HOT_LOCK:
+        base = list(HOT_BUFFER)
+    with HOST_LOCK:
+        for buf in HOST_BUFFERS.values():
+            base.extend(buf)
+    seen_ids = set()
+    by_pid = {}
+    for e in base:
+        eid = e.get("id", 0)
+        if eid in seen_ids:
+            continue
+        seen_ids.add(eid)
+        if host and e.get("host") != host:
+            continue
+        pid = e.get("pid", 0)
+        if not pid:
+            continue
+        key = (pid, e.get("comm", "unknown"))
+        by_pid.setdefault(key, {"count": 0, "types": set(), "max_score": 0, "host": e.get("host")})
+        by_pid[key]["count"] += 1
+        by_pid[key]["types"].add(e.get("type") or e.get("event_type"))
+        by_pid[key]["max_score"] = max(by_pid[key]["max_score"], e.get("score", 0))
+    if not by_pid:
+        return JSONResponse({"total": 0, "anomalies": []})
+    counts = [v["count"] for v in by_pid.values()]
+    mean = sum(counts) / len(counts)
+    variance = sum((c - mean) ** 2 for c in counts) / len(counts)
+    stddev = variance ** 0.5 or 1.0
+    anomalies = []
+    for (pid, comm), stats in by_pid.items():
+        z_score = (stats["count"] - mean) / stddev
+        if z_score >= 2.0:  # 2+ standard deviations above the mean = statistical outlier
+            anomalies.append({
+                "pid": pid, "comm": comm, "event_count": stats["count"],
+                "z_score": round(z_score, 2), "distinct_event_types": len(stats["types"]),
+                "max_score_seen": stats["max_score"], "host": stats["host"],
+            })
+    anomalies.sort(key=lambda a: a["z_score"], reverse=True)
+    return JSONResponse({
+        "total": len(anomalies), "baseline_mean_events_per_pid": round(mean, 1),
+        "baseline_stddev": round(stddev, 1), "anomalies": anomalies[:limit],
+    })
 @app.post("/watchlist/{pid}")
 def add_to_watchlist(pid: int):
     # C4 feedback loop endpoint: causal engine calls this when it
