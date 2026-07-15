@@ -8,6 +8,7 @@
 // Privilege: needs SeSecurityPrivilege — run as LOCAL SYSTEM via Windows service
 
 #include "etw_provider.h"
+#include <fstream>
 #include "event_serializer.h"
 
 #include <sddl.h>
@@ -32,11 +33,53 @@ EtwProvider::EtwProvider(EtwEventCallback on_event)
     , watchdog_running_(false)
     , events_captured_(0)
 {
+    load_file_key_cache();
 }
 
 EtwProvider::~EtwProvider()
 {
     stop();
+    save_file_key_cache();
+}
+
+// Persist file_key_cache_ across agent restarts -- closes the
+// post-restart blind window in rename detection (see
+// RENAME-DETECTION-CACHE-FRAGILITY-01). Simple binary format: for
+// each entry, [8-byte key][4-byte name length][name bytes (UTF-16)].
+// Loaded on startup, saved on clean shutdown. A crash/unclean
+// shutdown loses the cache same as before -- the extension-based
+// fallback (already shipped) still covers that narrower window.
+static const wchar_t* FILE_KEY_CACHE_PATH = L"C:\\ProgramData\\GhostIT\\file_key_cache.bin";
+void EtwProvider::save_file_key_cache()
+{
+    std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+    std::ofstream ofs(FILE_KEY_CACHE_PATH, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) return;
+    for (const auto& [key, name] : file_key_cache_) {
+        ofs.write(reinterpret_cast<const char*>(&key), sizeof(key));
+        uint32_t len = static_cast<uint32_t>(name.size());
+        ofs.write(reinterpret_cast<const char*>(&len), sizeof(len));
+        ofs.write(reinterpret_cast<const char*>(name.data()), len * sizeof(wchar_t));
+    }
+    std::cout << "[GhostIT ETW] Saved " << file_key_cache_.size()
+              << " file_key_cache entries to disk\n";
+}
+void EtwProvider::load_file_key_cache()
+{
+    std::ifstream ifs(FILE_KEY_CACHE_PATH, std::ios::binary);
+    if (!ifs.is_open()) return;
+    std::lock_guard<std::mutex> lk(file_key_cache_mutex_);
+    ULONGLONG key;
+    while (ifs.read(reinterpret_cast<char*>(&key), sizeof(key))) {
+        uint32_t len;
+        if (!ifs.read(reinterpret_cast<char*>(&len), sizeof(len))) break;
+        if (len > 4096) break;
+        std::wstring name(len, L'\0');
+        if (!ifs.read(reinterpret_cast<char*>(name.data()), len * sizeof(wchar_t))) break;
+        file_key_cache_[key] = name;
+    }
+    std::cout << "[GhostIT ETW] Loaded " << file_key_cache_.size()
+              << " file_key_cache entries from disk (persisted across restart)\n";
 }
 
 bool EtwProvider::start()

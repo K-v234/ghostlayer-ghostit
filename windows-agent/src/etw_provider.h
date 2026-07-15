@@ -126,6 +126,11 @@ private:
     // tools resolve file identity: cache on NameCreate, look up on
     // Write/Delete/Rename by the same FileKey.
     std::unordered_map<ULONGLONG, std::wstring> file_key_cache_;
+    // Persistence for file_key_cache_ across agent restarts -- see
+    // implementation in etw_provider.cpp for full rationale
+    // (RENAME-DETECTION-CACHE-FRAGILITY-01).
+    void save_file_key_cache();
+    void load_file_key_cache();
 
     // C15 Tier 2 noise reduction: process trust scoring via Authenticode
     // signature verification. Signed, trusted-publisher processes (Google,
