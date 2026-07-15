@@ -246,6 +246,55 @@ PLAYBOOKS: dict[str, Playbook] = {
         ],
     ),
 
+    "C17_CORRELATED_INCIDENT": Playbook(
+        rule_id="C17_CORRELATED_INCIDENT",
+        title="Correlated Multi-Alert Incident",
+        severity_baseline="CRITICAL",
+        what_happened="Multiple independent alerts, from one or more "
+            "detection sources, were correlated by C17 into a single "
+            "incident within a 15-minute window -- indicating these "
+            "aren't isolated events but likely stages of the same attack.",
+        why_it_matters="A single alert might be a false positive or an "
+            "isolated event. Multiple independent detection sources "
+            "agreeing, in a short time window, on the same host or "
+            "process, is a much stronger signal -- this is precisely why "
+            "Ghost IT weights correlated incidents higher than any single "
+            "alert (see COMPONENT_WEIGHTS in alert-engine/correlator.py).",
+        immediate_steps=[
+            "Review the incident's tactic_name/technique_name (MITRE "
+            "ATT&CK mapping) to understand what stage of an attack this "
+            "represents.",
+            "Check alert_count and sources in the incident record -- more "
+            "independent sources agreeing means higher confidence this is "
+            "real.",
+            "If confidence is high (multiple high-weight sources like "
+            "DECEPTION or KERNEL_INTEGRITY), treat as confirmed and follow "
+            "the isolation steps for the underlying alert types involved.",
+        ],
+        investigation_steps=[
+            "Pull all individual alerts that make up this incident (via "
+            "alert_ids in the incident record) and review each one's own "
+            "playbook for specific guidance.",
+            "Build a timeline: which alert fired first, and does the "
+            "sequence match a known attack pattern (e.g. reconnaissance -> "
+            "initial access -> execution -> persistence)?",
+        ],
+        containment_steps=[
+            "Correlated incidents spanning multiple hosts indicate likely "
+            "lateral movement -- isolate ALL affected hosts, not just the "
+            "one where the alert first appeared.",
+            "Escalate to full incident response if the incident includes "
+            "any CRITICAL-severity component alert.",
+        ],
+        false_positive_checks=[
+            "Correlated incidents have a much lower false-positive rate "
+            "than any single alert by design (multiple independent sources "
+            "agreeing) -- if this still seems like a false positive, check "
+            "each component alert's own false_positive_checks first, since "
+            "the correlation itself is unlikely to be wrong.",
+        ],
+    ),
+
     "canary_hit": Playbook(
         rule_id="canary_hit",
         title="Honeypot/Canary Triggered",
