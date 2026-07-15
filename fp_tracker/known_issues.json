@@ -12,8 +12,8 @@
     "id": "AGENT-STATS-01",
     "component": "C1",
     "title": "Agent stats dict shows 0/0/0/0 on some runs despite correct fflush() and min_uid filtering",
-    "detail": "Root cause not yet isolated -- possibly polling-loop timing or self_pid exclusion edge case. Does not affect actual event delivery -- verified separately via pipeline hot_buffer counts (357->707 confirmed during a run that reported 0/0/0/0 stats).",
-    "severity": "LOW",
+    "detail": "Root cause not yet isolated -- possibly polling-loop timing or self_pid exclusion edge case. Does not affect actual event delivery -- verified separately via pipeline hot_buffer counts (357->707 confirmed during a run that reported 0/0/0/0 stats). UPDATE (2026-07-15): checked full journalctl history for ghostit-agent -- zero occurrences of the 0/0/0/0 pattern found. Likely resolved incidentally as a side effect of other pipeline/agent fixes made across recent sessions, though the exact fixing change was never isolated. Marking resolved based on absence of reproduction rather than a traced root-cause fix.",
+    "severity": "RESOLVED",
     "owner": "Dhakshin",
     "date_found": "2026-07-08"
   },
