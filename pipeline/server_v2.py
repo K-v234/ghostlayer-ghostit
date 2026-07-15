@@ -462,6 +462,30 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.get("/threat-intel/stix")
+def export_stix_bundle(limit: int = Query(100, ge=1, le=1000)):
+    """
+    V3: Export current confirmed alerts as a STIX 2.1 Bundle -- the
+    OASIS-standard format for threat intelligence sharing used by
+    CISA, India-CERT, and TAXII-based sharing communities. Technical
+    prep for eventual India-CERT partnership integration: the data
+    format is ready now, independent of when the actual government
+    relationship exists.
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/integrations/threat_intel")
+    try:
+        from stix_formatter import to_stix_bundle
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/integrations/threat_intel"))
+        from stix_formatter import to_stix_bundle
+    with HOT_LOCK:
+        events = list(HOT_BUFFER)
+    alerts = [e for e in events if e.get("alert")]
+    alerts.sort(key=lambda x: x.get("id", 0), reverse=True)
+    alerts = alerts[:limit]
+    bundle = to_stix_bundle(hot_to_result(alerts))
+    return JSONResponse(bundle)
 @app.get("/hunt")
 def threat_hunt(
     file_pattern:  Optional[str] = Query(None, description="Substring match on file/path field"),
