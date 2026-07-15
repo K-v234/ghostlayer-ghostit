@@ -214,5 +214,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-16"
+  },
+  {
+    "id": "V3-STIX-EXPORT-VERIFIED-01",
+    "component": "V3",
+    "title": "STIX 2.1 threat intelligence export (CISA/India-CERT technical prep) built and verified with real data",
+    "detail": "Real, spec-correct STIX 2.1 exporter (integrations/threat_intel/stix_formatter.py) following the official OASIS STIX 2.1 specification: correct Bundle/Identity/Indicator object structure, deterministic UUID5 IDs (same alert always produces the same STIX ID -- important for deduplication), correct STIX Patterning Language syntax, correct RFC3339 timestamps. GET /threat-intel/stix pipeline endpoint exports current confirmed alerts as a live Bundle. Verified end-to-end with a real canary trigger against production cloud pipeline: correctly produced a valid STIX Indicator with real IP pattern matching, correct confidence, correct indicator_types labeling (after fixing a colon-suffix lookup bug found during testing). This is the technical prep piece for eventual India-CERT/CISA-equivalent partnership integration -- the data format is buildable and testable now, independent of when the actual government relationship exists.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-16"
   }
 ]
