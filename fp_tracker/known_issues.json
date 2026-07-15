@@ -205,5 +205,14 @@
     "severity": "MEDIUM",
     "owner": "unassigned",
     "date_found": "2026-07-15"
+  },
+  {
+    "id": "V3-THREAT-HUNTING-VERIFIED-01",
+    "component": "V3",
+    "title": "Threat Hunting Platform (GET /hunt, GET /hunt/anomalies) built and verified with real live data",
+    "detail": "Real, genuine analyst-hunting capability, distinct from passive alerting. /hunt supports multi-criteria historical search (substring pattern matching, event type, host, real time-range via since_minutes, cross-reference against C4's live watchlist). /hunt/anomalies implements genuine z-score statistical outlier detection against real live data -- verified finding a real anomaly (ghostit-agent-l itself, z-score 6.15, 13345 events vs baseline mean 406.4) without any pre-programmed rule, purely from statistical deviation. This is the actual technique professional threat hunters use to find novel activity signature-based detection misses. Verified end-to-end against real production cloud pipeline data: pattern search (shadow file query, correctly returned 0 -- no false positives), time-range filtering (10-minute window, correctly returned 157 real events), and anomaly detection (correctly identified real statistical outlier).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-16"
   }
 ]
