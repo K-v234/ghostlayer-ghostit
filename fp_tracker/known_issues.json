@@ -21,8 +21,8 @@
     "id": "VOLUME-IMBALANCE-01",
     "component": "C1/C9",
     "title": "Linux eBPF agent generates disproportionately high event volume vs Windows ETW agent",
-    "detail": "Confirmed on cloud pipeline (July 11): Linux agent's 46 active probes flood the recent-events buffer, pushing Windows events out of default query windows within minutes. Not a data-loss bug -- Windows events remain retrievable via since_id=0 anchored search. Worth investigating whether all 46 Linux probes are capturing genuinely useful signal (e.g. sendmsg/gdbus noise) vs over-broad capture. Relevant for storage/query cost at scale with many customer endpoints.",
-    "severity": "LOW",
+    "detail": "Confirmed on cloud pipeline (July 11): Linux agent's 46 active probes flood the recent-events buffer, pushing Windows events out of default query windows within minutes. Not a data-loss bug -- Windows events remain retrievable via since_id=0 anchored search. Worth investigating whether all 46 Linux probes are capturing genuinely useful signal (e.g. sendmsg/gdbus noise) vs over-broad capture. Relevant for storage/query cost at scale with many customer endpoints. UPDATE (2026-07-15): Resolved by the per-host fetch quota and priority-tier fetch logic built July 12 (pipeline/server_v2.py, /events/since endpoint) as part of fixing DETECTION-ENGINE-STARVED-01 -- the same fix that solved Windows events being starved by Linux volume also directly addresses this original tuning concern (Linux noise crowding out other signal in query results). Verified: event counts per fetch cycle dropped from hundreds to single digits/tens after the fix, confirmed via live testing.",
+    "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-11"
   },
