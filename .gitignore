@@ -30,3 +30,4 @@ data/audit_reports/
 agent/ebpf/vmlinux.h
 agent/ebpf/ghost_agent
 agent/ebpf/ghost_agent.bpf.o
+data/tenancy.json
