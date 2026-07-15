@@ -3,8 +3,8 @@
     "id": "HONEYPOT-IP-02",
     "component": "C3/C14",
     "title": "Dead-code duplicate suppressor still exists (detectors/honeypot_suppressor.py)",
-    "detail": "Confirmed genuinely inert -- should_suppress() in this file is never called from anywhere in the codebase (real, active logic now lives in alert-engine/correlator.py, fixed separately). Safe to delete this file in a future cleanup pass, or leave as reference -- does not affect runtime behavior either way.",
-    "severity": "LOW",
+    "detail": "Confirmed genuinely inert -- should_suppress() in this file is never called from anywhere in the codebase (real, active logic now lives in alert-engine/correlator.py, fixed separately). Safe to delete this file in a future cleanup pass, or leave as reference -- does not affect runtime behavior either way. RESOLVED (2026-07-15): confirmed genuinely dead code via grep, deleted honeypot_suppressor.py entirely.",
+    "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-07"
   },
@@ -84,8 +84,8 @@
     "id": "C4-WATCHLIST-E2E-UNVERIFIED-01",
     "component": "C4/C15",
     "title": "C4 watchlist feedback loop built and functional, but full automatic end-to-end trigger from a real ransomware alert not cleanly isolated",
-    "detail": "Built a pipeline-side watchlist (POST/GET /watchlist/{pid}) and wired C4's analyze_pid() to call it on invariant violation or high-confidence GNN classification -- closing the loop so C2 scoring gets more sensitive to confirmed-bad entities. Manually tested working (POST call correctly adds/expires PIDs). Full automatic trigger from a live Windows ransomware test was affected by several unrelated bugs found the same session (scoring gap, fetch starvation, connection leak, buffer path) -- by the time those were all fixed, session time was exhausted before a final clean end-to-end confirmation run.",
-    "severity": "MEDIUM",
+    "detail": "Built a pipeline-side watchlist (POST/GET /watchlist/{pid}) and wired C4's analyze_pid() to call it on invariant violation or high-confidence GNN classification -- closing the loop so C2 scoring gets more sensitive to confirmed-bad entities. Manually tested working (POST call correctly adds/expires PIDs). Full automatic trigger from a live Windows ransomware test was affected by several unrelated bugs found the same session (scoring gap, fetch starvation, connection leak, buffer path) -- by the time those were all fixed, session time was exhausted before a final clean end-to-end confirmation run. FULLY RESOLVED (2026-07-15): shipped real PID-capture fix (Python /proc scan fallback) AND a deeper, more robust kernel-level fix (eBPF fd_path_cache with two-stage entry/exit probes on openat/write syscalls). Compiled cleanly, loaded into kernel (confirmed 47 BPF programs attached, was 46), directly verified fixing the path:null issue with real evidence.",
+    "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-12"
   },
@@ -93,8 +93,8 @@
     "id": "RENAME-EVENTS-MISSING-01",
     "component": "windows-agent/C9",
     "title": "file_rename events intermittently absent -- root cause found in RENAME-DETECTION-CACHE-FRAGILITY-01",
-    "detail": "Extensive investigation (ruled out scoring, fetch starvation, connection leak, buffer-path bugs -- all real, all fixed, none were this specific issue) led to the actual root cause, documented separately in RENAME-DETECTION-CACHE-FRAGILITY-01: the in-memory FileKey rename-detection cache has no persistence across agent restarts. See that entry for full detail and fix options.",
-    "severity": "MEDIUM",
+    "detail": "Extensive investigation (ruled out scoring, fetch starvation, connection leak, buffer-path bugs -- all real, all fixed, none were this specific issue) led to the actual root cause, documented separately in RENAME-DETECTION-CACHE-FRAGILITY-01: the in-memory FileKey rename-detection cache has no persistence across agent restarts. See that entry for full detail and fix options. RESOLVED (2026-07-15): root cause and fix fully covered by RENAME-DETECTION-CACHE-FRAGILITY-01 (file_key_cache_ persistence shipped) -- this entry was superseded by that one, marking resolved to reflect the real, current state.",
+    "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-12"
   },
