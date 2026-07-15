@@ -187,5 +187,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-15"
+  },
+  {
+    "id": "V2-SIEM-SPLUNK-VERIFIED-01",
+    "component": "V2/SIEM",
+    "title": "Splunk CIM-compliant JSON export built and verified end-to-end -- completes full 3-format SIEM export story",
+    "detail": "Built integrations/siem/splunk_cim_formatter.py mapping Ghost IT alerts to Splunk CIM Alerts data model field names (signature, severity, src, dest, dvc, action, vendor_product), delivered via HTTP Event Collector (HEC) POST rather than syslog (Splunk's modern standard ingestion path). Extended siem_exporter.py with --format splunk mode plus --splunk-hec-url/--splunk-hec-token args. Verified end-to-end with a real canary trigger against a mock HEC listener: 4 real alerts correctly formatted, correctly authenticated (Authorization: Splunk <token> header), correctly received as valid JSON with proper CIM fields plus Ghost IT extension fields. This completes the full 3-format SIEM export story (CEF for Sentinel/ArcSight, LEEF for QRadar, Splunk CIM JSON) -- Ghost IT can now export real-time alerts natively to all three major SIEM platforms customers are likely to already run.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-15"
   }
 ]
