@@ -110,7 +110,7 @@ def to_stix_indicator(alert: dict) -> dict:
         "created_by_ref": GHOST_IT_IDENTITY_ID,
         "name": f"Ghost IT detection: {rule_id}",
         "description": description[:500],
-        "indicator_types": INDICATOR_LABELS.get(rule_id, ["unknown"]),
+        "indicator_types": INDICATOR_LABELS.get(rule_id.split(":")[0], ["unknown"]),
         "pattern": _build_pattern(alert),
         "pattern_type": "stix",
         "valid_from": created,
