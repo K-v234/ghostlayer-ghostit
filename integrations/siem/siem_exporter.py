@@ -18,6 +18,7 @@ import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cef_formatter import to_cef
+from leef_formatter import to_leef
 
 log = logging.getLogger("siem_exporter")
 logging.basicConfig(level=logging.INFO,
@@ -25,12 +26,14 @@ logging.basicConfig(level=logging.INFO,
 
 class SIEMExporter:
     def __init__(self, pipeline_api: str, siem_host: str, siem_port: int,
-                 protocol: str = "udp", poll_interval: int = 15):
+                 protocol: str = "udp", poll_interval: int = 15,
+                 format: str = "cef"):
         self.pipeline_api = pipeline_api
         self.siem_host = siem_host
         self.siem_port = siem_port
         self.protocol = protocol
         self.poll_interval = poll_interval
+        self.format = format
         self._max_seen_id = 0
 
     def _fetch_new_alerts(self) -> list[dict]:
@@ -68,9 +71,9 @@ class SIEMExporter:
         while True:
             alerts = self._fetch_new_alerts()
             for alert in alerts:
-                cef_line = to_cef(alert)
-                self._send_to_siem(cef_line)
-                log.info(f"Exported: {cef_line[:100]}...")
+                line = to_leef(alert) if self.format == "leef" else to_cef(alert)
+                self._send_to_siem(line)
+                log.info(f"Exported ({self.format}): {line[:100]}...")
             time.sleep(self.poll_interval)
 
 def main():
@@ -80,6 +83,7 @@ def main():
     ap.add_argument("--siem-port", type=int, default=514)
     ap.add_argument("--protocol", choices=["udp", "tcp"], default="udp")
     ap.add_argument("--poll-interval", type=int, default=15)
+    ap.add_argument("--format", choices=["cef", "leef"], default="cef")
     args = ap.parse_args()
 
     exporter = SIEMExporter(
@@ -88,6 +92,7 @@ def main():
         siem_port=args.siem_port,
         protocol=args.protocol,
         poll_interval=args.poll_interval,
+        format=args.format,
     )
     exporter.run()
 

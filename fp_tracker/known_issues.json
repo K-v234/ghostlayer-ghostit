@@ -178,5 +178,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-14"
+  },
+  {
+    "id": "V2-SIEM-LEEF-VERIFIED-01",
+    "component": "V2/SIEM",
+    "title": "LEEF format (QRadar) SIEM export built and verified end-to-end",
+    "detail": "Built integrations/siem/leef_formatter.py per IBM's official LEEF v2.0 spec (pipe-delimited header, tab-separated key=value attributes, correct severity mapping). Extended siem_exporter.py with --format cef|leef selector. Verified end-to-end with real canary trigger: two genuine alerts correctly converted to valid LEEF:2.0 and received by test UDP listener, including custom ghostit_reasons/ghostit_evidence/ghostit_score fields alongside QRadar predefined attributes (devTime, sev, src, dst, identHostName, cat, usrName). Two of three planned SIEM formats now complete (CEF for Sentinel/ArcSight, LEEF for QRadar) -- remaining: Splunk CIM-compliant JSON export.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-15"
   }
 ]
