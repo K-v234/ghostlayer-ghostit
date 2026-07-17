@@ -3,6 +3,7 @@ WORKDIR /app
 COPY detection/ ./detection/
 COPY alert-engine/ ./alert-engine/
 COPY detectors/ ./detectors/
+COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir requests duckdb pytz numpy scikit-learn
 ENV CHAIN_STATE_PATH=/data/chain_state.json
 ENV INCIDENTS_DB_PATH=/data/ghostit_incidents.duckdb
