@@ -462,6 +462,23 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.get("/predict/{tactic}")
+def predict_next(tactic: str):
+    """
+    Predictive Next-Step Inference: given a MITRE ATT&CK tactic just
+    observed in a confirmed detection, predicts the statistically
+    likely next tactic(s) per real, documented kill-chain progression,
+    with concrete watch-guidance -- turns detection from purely
+    reactive into genuinely anticipatory.
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from predictive_inference import predict_next_tactics
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from predictive_inference import predict_next_tactics
+    return JSONResponse(predict_next_tactics(tactic))
 @app.post("/adaptive-thresholds/observe")
 def adaptive_threshold_observe(pillar: str, score: float):
     """HTTP-based score observation for Adaptive Threshold Calibration

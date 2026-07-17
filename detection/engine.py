@@ -107,6 +107,27 @@ def send_to_pipeline(detections: list, host: str, port: int):
     events = []
     for d in detections:
         tag = get_mitre_tag(d.rule_id)
+        # Predictive Next-Step Inference: given this detection's
+        # confirmed tactic, query what's statistically likely to
+        # happen next per real MITRE ATT&CK kill-chain progression,
+        # and log it as an actionable anticipatory signal -- turns
+        # this from purely reactive detection into genuine prediction.
+        if tag:
+            try:
+                import urllib.parse as _urlp
+                _url = f"http://ghostit-pipeline:8000/predict/{_urlp.quote(tag.tactic)}"
+                with urllib.request.urlopen(_url, timeout=3) as _r:
+                    _pred = json.loads(_r.read())
+                if _pred.get("predicted_next"):
+                    next_tactics = [p["tactic"] for p in _pred["predicted_next"]]
+                    log.warning(
+                        f"[PREDICT] {d.rule_id} confirmed at tactic={tag.tactic} "
+                        f"-- likely next: {next_tactics} "
+                        f"(kill chain position {_pred.get('kill_chain_position')}/"
+                        f"{_pred.get('kill_chain_total_stages')})"
+                    )
+            except Exception as _ex:
+                log.debug(f"Predictive inference error: {_ex}")
         # V1.5: tag whether this rule has a real incident response
         # playbook available -- dashboard uses this to show/hide the
         # "View Playbook" action, fetching the actual content from
