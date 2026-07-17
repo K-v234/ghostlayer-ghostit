@@ -8,6 +8,10 @@ RUN pip install --no-cache-dir duckdb
 ENV CORTEX_DB_PATH=/data/cortex.duckdb
 ENV TEMPORAL_DB_PATH=/data/temporal_memory.duckdb
 ENV THRESHOLDS_DB_PATH=/data/adaptive_thresholds.duckdb
+ENV RESPONSE_DB_PATH=/data/autonomous_response.duckdb
+# SAFETY: simulation mode by default -- decisions logged, no real
+# action executed, until explicitly enabled after a real observation period.
+ENV GHOSTIT_AUTONOMOUS_ACTIONS_ENABLED=false
 
 CMD ["python3", "deception/canary/server.py", \
      "--http-port", "8080", \

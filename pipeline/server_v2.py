@@ -462,6 +462,21 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.get("/autonomous-response/history")
+def autonomous_response_history(entity_id: str = Query(None), limit: int = Query(50, ge=1, le=200)):
+    """Decision history from the Autonomous Response Engine -- every
+    decision made (simulated or real) with full evidence: score,
+    contributing pillars, reasoning, tier, and whether it was actually
+    executed or just simulated."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from autonomous_response import AutonomousResponseEngine
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from autonomous_response import AutonomousResponseEngine
+    engine = AutonomousResponseEngine()
+    return JSONResponse({"decisions": engine.get_decision_history(entity_id, limit)})
 @app.get("/predict/{tactic}")
 def predict_next(tactic: str):
     """
@@ -556,6 +571,23 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
         from cortex import Cortex, CortexContribution
     cortex = Cortex()
     result = cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
+    # Autonomous Response Engine: every Cortex contribution is a real
+    # opportunity for the fused score to have crossed the action
+    # threshold -- check on every contribution, not on a separate
+    # poll cycle, so decisions happen in real time as suspicion
+    # genuinely accumulates. SIMULATION MODE by default (see
+    # causal-engine/autonomous_response.py's safety design) --
+    # decisions are computed and logged, no real action taken unless
+    # GHOSTIT_AUTONOMOUS_ACTIONS_ENABLED is explicitly set.
+    try:
+        from autonomous_response import AutonomousResponseEngine
+        engine = AutonomousResponseEngine()
+        engine.decide(
+            f"pid:{pid}", result["score"], result["pillars"],
+            f"triggered by new contribution from {pillar}: {reason}"
+        )
+    except Exception as _ex:
+        log.debug(f"Autonomous response decision error: {_ex}")
     return JSONResponse(result)
 @app.get("/cortex/{pid}")
 def get_cortex_score(pid: int):
