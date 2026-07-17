@@ -223,5 +223,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-16"
+  },
+  {
+    "id": "FRIEND-AGENT-VERIFIED-01",
+    "component": "Deployment",
+    "title": "Second, independent Windows machine (friend's laptop) confirmed connected and detecting -- real multi-machine proof-of-concept",
+    "detail": "Friend installed GhostITAgent via Telegram-transferred package. Confirmed via: (1) real telemetry (file_open, DLL loads) attributed to a distinct source_ip, (2) a live canary trigger from his machine producing a real score-100 alert, (3) exact timestamp correlation (2026-07-17 04:58:36 UTC matched precisely between his own HTTP response Date header and server-side alert creation time) -- definitive proof despite an initial IP-mismatch confusion (his ipify-check IP differed from the canary-hit source IP, explained by carrier-grade NAT routing different connections through different pooled IPs, worth remembering for any future IP-based customer attribution design). Also fixed along the way: two missing AWS Lightsail firewall rules (ports 8080 and 8891).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-17"
   }
 ]
