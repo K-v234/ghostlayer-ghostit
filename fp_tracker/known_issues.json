@@ -232,5 +232,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-17"
+  },
+  {
+    "id": "CORTEX-CROSS-PILLAR-FUSION-VERIFIED-01",
+    "component": "Architecture",
+    "title": "Cortex cross-pillar live fusion layer built, deployed, and verified end-to-end with real production data",
+    "detail": "Major architectural upgrade: closes the gap where every detection pillar (C2/C3/C4/C14/C15/C19) decided independently whether something crosses ITS OWN threshold, in isolation -- two mild signals from two different pillars never compounded, meaning an attacker staying just under each individual threshold could walk through undetected. Built causal-engine/cortex.py: continuously-updated, time-decayed, persistent per-entity confidence score with cross-pillar diversity bonus. Wired C2, C3, C14, and C15 to contribute regardless of whether their own threshold fired. Self-test proved the core concept: three individually-mild signals fused to an 89.9 cross-pillar escalation score that no single pillar would have triggered alone. Debugging this to real production deployment required tracing FOUR separate real bugs: (1) PID capture timing race for fast-exiting processes, (2) a hardcoded ~/ghostlayer path bug (same class fixed 10+ times previously in this project) causing silent ModuleNotFoundError, (3) a fundamental architecture flaw -- DuckDB's single-writer concurrency model conflicting with three separate Docker containers each trying to open the same database file directly, and (4) canary's docker-compose service definition missing the shared /data volume mount entirely. Fixed (3) properly by routing all non-pipeline services through a new POST /cortex/contribute HTTP endpoint (same pattern as the existing C4 watchlist), so only pipeline touches the DuckDB file directly. Verified end-to-end with real live canary trigger data: pid:9 correctly scored 79.3 from two real C3_deception contributions, correct weight and time-decay behavior confirmed.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-17"
   }
 ]
