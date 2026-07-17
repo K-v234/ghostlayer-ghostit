@@ -2,6 +2,8 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY pipeline/ ./pipeline/
 COPY integrations/threat_intel/ ./integrations/threat_intel/
+COPY causal-engine/ ./causal-engine/
+RUN pip install --no-cache-dir duckdb
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
     numpy pandas pyarrow pytz

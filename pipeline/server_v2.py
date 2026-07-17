@@ -462,6 +462,37 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.get("/cortex/{pid}")
+def get_cortex_score(pid: int):
+    """
+    Query the Cortex's current, live-decayed fused suspicion score for
+    a specific PID, showing exactly which pillars contributed and why
+    -- this is the real, working answer to 'is this process suspicious
+    when you consider everything every pillar has seen about it, not
+    just whether any single pillar's threshold fired.'
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from cortex import Cortex
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from cortex import Cortex
+    cortex = Cortex()
+    return JSONResponse(cortex.get_score(f"pid:{pid}"))
+@app.get("/cortex")
+def get_cortex_top(limit: int = Query(20, ge=1, le=100)):
+    """Top currently-most-suspicious entities per the Cortex's live
+    fused scoring -- a real-time 'watch this' priority queue."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from cortex import Cortex
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from cortex import Cortex
+    cortex = Cortex()
+    return JSONResponse({"top_entities": cortex.top_entities(limit)})
 @app.get("/threat-intel/stix")
 def export_stix_bundle(limit: int = Query(100, ge=1, le=1000)):
     """
