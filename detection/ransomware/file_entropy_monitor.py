@@ -24,10 +24,14 @@ def _get_file_accessor(filepath: str) -> tuple[int, str]:
     Find PID and comm of process currently holding the given file
     open. Ported from deception/canary/watcher.py's _get_accessor(),
     the same proven pattern used for canary file hit attribution.
-    Scans /proc/*/fd, matching by resolved symlink target. May not
-    find the process if it already closed the file before this scan
-    runs -- returns (0, "unknown") in that case, same as before this
-    fix, so this is a pure improvement with no new failure mode.
+    Scans /proc/*/fd, matching by resolved symlink target.
+
+    KNOWN LIMITATION (confirmed via testing 2026-07-15): only works if
+    the process still has the file open at scan time -- fast processes
+    (dd/mv-style instant writes) close their fd before this can catch
+    them. Real ransomware, which writes/encrypts content over
+    measurable time, is caught correctly (verified). See
+    _get_pid_from_pipeline() for the more robust fallback used first.
     """
     try:
         for pid in os.listdir("/proc"):
@@ -47,6 +51,33 @@ def _get_file_accessor(filepath: str) -> tuple[int, str]:
                 continue
     except Exception:
         pass
+    return 0, "unknown"
+
+def _get_pid_from_pipeline(filepath: str, pipeline_host: str = "127.0.0.1",
+                             pipeline_port: int = 8000) -> tuple[int, str]:
+    """
+    More robust PID source than /proc scanning: C1's eBPF agent
+    captures file events with real PIDs synchronously, at the kernel
+    level, at the exact moment the operation happens -- no race
+    condition with the process exiting before we can look, unlike
+    /proc/*/fd scanning. Query the pipeline's recent events for one
+    matching this exact filepath, reusing C1's already-correct PID
+    instead of independently re-discovering it. This is the primary
+    lookup; _get_file_accessor()'s /proc scan is the fallback for
+    cases where C1's event hasn't landed in the pipeline yet (e.g.
+    local testing without a full agent pipeline running).
+    """
+    import urllib.request
+    try:
+        url = f"http://{pipeline_host}:{pipeline_port}/events?limit=200&min_score=0"
+        with urllib.request.urlopen(url, timeout=3) as r:
+            import json as _json
+            data = _json.loads(r.read())
+        for e in data.get("events", []):
+            if e.get("file") == filepath and e.get("pid", 0) > 0:
+                return e.get("pid", 0), e.get("comm", "unknown")
+    except Exception as ex:
+        log.debug(f"Pipeline PID lookup failed for {filepath}: {ex}")
     return 0, "unknown"
 
 # inotify flags
@@ -272,7 +303,16 @@ class FileEntropyMonitor:
         # lets C4's causal engine build a subgraph and add the process
         # to its watchlist -- closing C4-WATCHLIST-E2E-UNVERIFIED-01,
         # since inotify alone never carries the accessing process's PID.
-        real_pid, real_comm = _get_file_accessor(filepath)
+        # Primary: query C1's already-correct eBPF-captured PID from
+        # the pipeline (no race condition). Fallback: /proc scan (works
+        # if the process still has the file open).
+        # Note: self.pipeline_port is the raw TCP ingestion port (9000),
+        # not the HTTP API port (8000) -- the API always runs on 8000
+        # regardless of the TCP port configured, per pipeline/server_v2.py.
+        real_pid, real_comm = _get_pid_from_pipeline(
+            filepath, self.pipeline_host, 8000)
+        if real_pid == 0:
+            real_pid, real_comm = _get_file_accessor(filepath)
         event = [{
             "ts":           int(time.time_ns()),
             "pid":          real_pid, "ppid": 0, "uid": 0, "gid": 0,

@@ -11,6 +11,8 @@ ENV RESPONSE_DB_PATH=/data/autonomous_response.duckdb
 # SAFETY: simulation mode by default -- decisions logged, no real
 # action executed, until explicitly enabled after a real observation period.
 ENV GHOSTIT_AUTONOMOUS_ACTIONS_ENABLED=false
+ENV MESH_DB_PATH=/data/threat_mesh.duckdb
+ENV GHOSTIT_DEPLOYMENT_ID=keerthivahanan-cloud-mumbai
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
     numpy pandas pyarrow pytz

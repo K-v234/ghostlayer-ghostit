@@ -462,6 +462,57 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.post("/threat-mesh/broadcast")
+def threat_mesh_broadcast(origin_deployment: str, fingerprint: str, tactic: str,
+                            technique: str, comm_pattern: str, resource_pattern: str,
+                            confidence: float):
+    """
+    Threat Mesh: broadcast a confirmed threat pattern to every
+    connected deployment (currently: every customer/machine reporting
+    to this shared pipeline -- the real, honest scope right now,
+    architected to scale as more independent firms/customers connect).
+    Called automatically when Autonomous Response makes a real
+    tier-2+ decision anywhere in the fleet.
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from threat_mesh import ThreatMesh
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from threat_mesh import ThreatMesh
+    mesh = ThreatMesh()
+    result = mesh.broadcast_immunity(origin_deployment, fingerprint, tactic,
+                                       technique, comm_pattern, resource_pattern, confidence)
+    return JSONResponse(result)
+@app.get("/threat-mesh/check")
+def threat_mesh_check(comm: str, resource: str):
+    """Check if an event matches any active mesh-confirmed threat
+    pattern -- lets ANY connected deployment benefit instantly from
+    what ANY OTHER connected deployment already confirmed, before its
+    own local pillars would independently figure it out."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from threat_mesh import ThreatMesh
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from threat_mesh import ThreatMesh
+    mesh = ThreatMesh()
+    return JSONResponse(mesh.check_immunity(comm, resource))
+@app.get("/threat-mesh/signals")
+def threat_mesh_signals(limit: int = Query(50, ge=1, le=200)):
+    """All currently active mesh immunity signals -- the real,
+    live 'collective knowledge' every connected deployment shares."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from threat_mesh import ThreatMesh
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from threat_mesh import ThreatMesh
+    mesh = ThreatMesh()
+    return JSONResponse({"active_signals": mesh.get_active_signals(limit)})
 @app.get("/autonomous-response/history")
 def autonomous_response_history(entity_id: str = Query(None), limit: int = Query(50, ge=1, le=200)):
     """Decision history from the Autonomous Response Engine -- every
@@ -582,10 +633,28 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
     try:
         from autonomous_response import AutonomousResponseEngine
         engine = AutonomousResponseEngine()
-        engine.decide(
+        decision = engine.decide(
             f"pid:{pid}", result["score"], result["pillars"],
             f"triggered by new contribution from {pillar}: {reason}"
         )
+        # Threat Mesh: a real tier-2+ decision is confirmed-enough
+        # evidence to broadcast to every other connected deployment --
+        # this is the actual moment collective immunity kicks in.
+        if decision.get("tier", 0) >= 2:
+            try:
+                from threat_mesh import ThreatMesh
+            except ImportError:
+                import sys as _sys2
+                _sys2.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+                from threat_mesh import ThreatMesh
+            import hashlib as _hashlib
+            fp = _hashlib.sha256(f"{pillar}:{reason}".lower().encode()).hexdigest()[:16]
+            ThreatMesh().broadcast_immunity(
+                origin_deployment=os.environ.get("GHOSTIT_DEPLOYMENT_ID", "unknown-deployment"),
+                fingerprint=fp, tactic="", technique="",
+                comm_pattern=pillar, resource_pattern=reason[:100],
+                confidence=result["score"],
+            )
     except Exception as _ex:
         log.debug(f"Autonomous response decision error: {_ex}")
     return JSONResponse(result)

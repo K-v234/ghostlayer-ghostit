@@ -70,6 +70,36 @@ struct {
     __type(value, __u8);
 } pid_blacklist SEC(".maps");
 
+/*
+ * fd_path_cache -- maps (pid,fd) -> path, populated at open time.
+ * write() only receives a file descriptor, not a path -- resolving
+ * fd->path from inside write() would require walking
+ * task->files->fdt, expensive on every call. Instead cache the path
+ * once at open time (when the syscall genuinely carries it as an
+ * argument, via the entry/exit probe pair below) and look it up
+ * cheaply at write time. Key is packed u64: high 32 bits pid, low
+ * 32 bits fd.
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 4096);
+    __type(key,   __u64);
+    __type(value, char[64]);
+} fd_path_cache SEC(".maps");
+
+/*
+ * openat_staging -- temporary PID->path bridge between
+ * sys_enter_openat (has the path, not the fd yet) and
+ * sys_exit_openat (has the real fd, not the path -- only the
+ * syscall's return value carries it).
+ */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key,   __u32);
+    __type(value, char[64]);
+} openat_staging SEC(".maps");
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
@@ -396,6 +426,30 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
                             (const void *)(long)ctx->args[1]);
     e->flags = (__u16)ctx->args[2];
     bpf_ringbuf_submit(e, 0);
+    /* Stage path keyed by PID so sys_exit_openat can combine it with
+     * the real fd (only known at exit, not entry) -- see
+     * fd_path_cache comment near the map declarations. */
+    {
+        char staged_path[64] = {};
+        bpf_probe_read_user_str(staged_path, sizeof(staged_path),
+                                (const void *)(long)ctx->args[1]);
+        __u32 pid = bpf_get_current_pid_tgid() >> 32;
+        bpf_map_update_elem(&openat_staging, &pid, staged_path, BPF_ANY);
+    }
+    return 0;
+}
+
+SEC("tp/syscalls/sys_exit_openat")
+int handle_openat_exit(struct trace_event_raw_sys_exit *ctx)
+{
+    __u32 pid = bpf_get_current_pid_tgid() >> 32;
+    char *staged_path = bpf_map_lookup_elem(&openat_staging, &pid);
+    if (!staged_path) return 0;
+    long ret = ctx->ret;
+    bpf_map_delete_elem(&openat_staging, &pid);
+    if (ret < 0) return 0;
+    __u64 fd_key = ((__u64)pid << 32) | (__u32)ret;
+    bpf_map_update_elem(&fd_path_cache, &fd_key, staged_path, BPF_ANY);
     return 0;
 }
 
@@ -407,7 +461,6 @@ int handle_openat2(struct trace_event_raw_sys_enter *ctx)
 
     struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
-
     fill_common(e, EVENT_OPENAT2, PRIORITY_STANDARD);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
                             (const void *)(long)ctx->args[1]);
@@ -598,6 +651,20 @@ int handle_write(struct trace_event_raw_sys_enter *ctx)
     struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
     fill_common(e, EVENT_WRITE, PRIORITY_STANDARD);
+    /* Resolve the write's actual path via the fd cache populated at
+     * open time -- write() only carries the fd, not a path, so this
+     * lookup is what makes file_write events path-aware instead of
+     * always having path=NULL (confirmed root cause of
+     * C4-WATCHLIST-E2E-UNVERIFIED-01's inotify-path limitation --
+     * this is the more robust, kernel-level fix). */
+    {
+        __u32 pid = bpf_get_current_pid_tgid() >> 32;
+        __u64 fd_key = ((__u64)pid << 32) | (__u32)fd;
+        char *cached_path = bpf_map_lookup_elem(&fd_path_cache, &fd_key);
+        if (cached_path) {
+            bpf_probe_read_kernel_str(e->path, sizeof(e->path), cached_path);
+        }
+    }
     e->flags = (__u16)fd;
     bpf_ringbuf_submit(e, 0);
     return 0;
