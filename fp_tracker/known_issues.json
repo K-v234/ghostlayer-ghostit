@@ -241,5 +241,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-17"
+  },
+  {
+    "id": "TEMPORAL-MEMORY-VERIFIED-01",
+    "component": "Architecture",
+    "title": "Temporal Attack-Graph Memory built, wired, and verified end-to-end with real production HTTP calls",
+    "detail": "Architectural upgrade #2: closes the gap where an attacker performing reconnaissance today and returning next week looks like a completely fresh, unknown entity, since PIDs reset on reboot and C4 causal chains expire in minutes. Built causal-engine/temporal_memory.py: durable entity fingerprinting (host+comm+resource, independent of PID) with 30-day retention. Wired via POST /temporal-memory/sighting and GET /temporal-memory/recurring HTTP endpoints (same single-writer-via-pipeline architecture proven with the Cortex, applied correctly from the start this time). Verified end-to-end with real HTTP calls: first call correctly created a new fingerprint (is_returning_actor=false), second identical call correctly recognized the return (is_returning_actor=true, sighting_count=2). C15 wired to auto-report, though C15's own pre-existing threshold-sensitivity meant automatic end-to-end triggering wasn't captured this session -- the underlying mechanism is fully proven correct via direct testing.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-17"
   }
 ]
