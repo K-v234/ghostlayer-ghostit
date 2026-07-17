@@ -462,6 +462,34 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.post("/temporal-memory/sighting")
+def temporal_memory_sighting(host: str, comm: str, resource: str, pillar: str, reason: str):
+    """HTTP-based sighting recorder for Temporal Attack-Graph Memory --
+    same single-writer-via-pipeline pattern as /cortex/contribute."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from temporal_memory import TemporalMemory
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from temporal_memory import TemporalMemory
+    tm = TemporalMemory()
+    result = tm.record_sighting(host, comm, resource, pillar, reason)
+    return JSONResponse(result)
+@app.get("/temporal-memory/recurring")
+def temporal_memory_recurring(min_count: int = Query(2, ge=1), limit: int = Query(20, ge=1, le=100)):
+    """Recurring attack patterns across time -- fingerprints seen
+    multiple times, possibly days apart, indicating a returning
+    actor rather than isolated unrelated events."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from temporal_memory import TemporalMemory
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from temporal_memory import TemporalMemory
+    tm = TemporalMemory()
+    return JSONResponse({"recurring_patterns": tm.get_recurring(min_count, limit)})
 @app.post("/cortex/contribute")
 def cortex_contribute(pid: int, pillar: str, reason: str):
     """

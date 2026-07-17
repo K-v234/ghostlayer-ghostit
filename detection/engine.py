@@ -39,6 +39,25 @@ def _feed_cortex(pid: int, pillar: str, reason: str):
         urllib.request.urlopen(req, timeout=3)
     except Exception as ex:
         log.debug(f"Cortex feed error: {ex}")
+def _feed_temporal_memory(host: str, comm: str, resource: str, pillar: str, reason: str):
+    """
+    Report a sighting to Temporal Attack-Graph Memory via HTTP (same
+    single-writer-via-pipeline pattern as Cortex, for the same
+    concurrency reason). Records whether this specific pattern has
+    been seen before, possibly days ago -- recognizing a returning
+    actor across time, not just within one session.
+    """
+    try:
+        import urllib.parse
+        params = urllib.parse.urlencode({
+            "host": host, "comm": comm, "resource": resource[:200],
+            "pillar": pillar, "reason": reason[:200],
+        })
+        url = f"http://ghostit-pipeline:8000/temporal-memory/sighting?{params}"
+        req = urllib.request.Request(url, method="POST")
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as ex:
+        log.debug(f"Temporal memory feed error: {ex}")
 from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
@@ -293,6 +312,7 @@ class DetectionEngine:
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C15_ransomware", f"{r.trigger}:z={r.z_score:.1f}")
+                    _feed_temporal_memory(e.get("host","unknown"), e.get("comm","unknown"), e.get("file","") or "unknown", "C15_ransomware", r.trigger)
                 # C14: LOLBin
                 l = self._lolbin.check_event(e)
                 if l:

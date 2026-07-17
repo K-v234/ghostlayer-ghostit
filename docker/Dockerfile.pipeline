@@ -5,6 +5,7 @@ COPY integrations/threat_intel/ ./integrations/threat_intel/
 COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir duckdb
 ENV CORTEX_DB_PATH=/data/cortex.duckdb
+ENV TEMPORAL_DB_PATH=/data/temporal_memory.duckdb
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
     numpy pandas pyarrow pytz
