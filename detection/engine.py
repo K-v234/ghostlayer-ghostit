@@ -18,21 +18,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from detection.rules      import check_event, check_sequence, Detection
 from detection.mitre      import get_mitre_tag, KillChainStage
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "causal-engine"))
-from cortex import Cortex, CortexContribution
-_cortex = Cortex()
 def _feed_cortex(pid: int, pillar: str, reason: str):
     """
-    Report a finding to the Cortex regardless of whether it crossed
-    this pillar's own alert threshold -- see causal-engine/cortex.py
-    for full rationale. Failures here are logged but never block
-    detection itself; the Cortex is an enhancement layer, not a
-    dependency the core pipeline should ever be blocked by.
+    Report a finding to the Cortex via HTTP -- see
+    pipeline/server_v2.py's POST /cortex/contribute for full
+    rationale (DuckDB single-writer concurrency means only the
+    pipeline process can open the Cortex DB directly; every other
+    service, including this one, contributes over HTTP instead).
+    Failures here are logged but never block detection itself; the
+    Cortex is an enhancement layer, not a dependency the core
+    pipeline should ever be blocked by.
     """
     if not pid:
         return
     try:
-        _cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
+        import urllib.parse
+        url = (f"http://ghostit-pipeline:8000/cortex/contribute?"
+               f"pid={pid}&pillar={urllib.parse.quote(pillar)}&reason={urllib.parse.quote(reason[:200])}")
+        req = urllib.request.Request(url, method="POST")
+        urllib.request.urlopen(req, timeout=3)
     except Exception as ex:
         log.debug(f"Cortex feed error: {ex}")
 from detection.chain_tracker import ChainTracker

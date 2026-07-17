@@ -462,6 +462,30 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.post("/cortex/contribute")
+def cortex_contribute(pid: int, pillar: str, reason: str):
+    """
+    HTTP-based Cortex contribution endpoint. Fixes a real concurrency
+    bug: DuckDB only allows one process to hold a write lock on a
+    database file at a time, but pipeline/detection/canary are three
+    SEPARATE Docker containers -- each independently opening
+    causal-engine/cortex.py's DuckDB file directly caused
+    'Conflicting lock is held' errors. The fix: only the pipeline
+    process (which already owns this DuckDB connection and has a
+    public HTTP API) touches the Cortex DB directly; every other
+    service now contributes via this HTTP endpoint instead of
+    importing cortex.py and opening the file itself.
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from cortex import Cortex, CortexContribution
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from cortex import Cortex, CortexContribution
+    cortex = Cortex()
+    result = cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
+    return JSONResponse(result)
 @app.get("/cortex/{pid}")
 def get_cortex_score(pid: int):
     """

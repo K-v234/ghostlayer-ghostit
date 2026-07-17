@@ -85,20 +85,17 @@ class CanaryServer:
         ))
         if pid:
             try:
-                import sys as _sys
-                # Same relative-path pattern used everywhere else in
-                # this codebase for cross-container correctness --
-                # os.path.expanduser('~/...') resolves to /root inside
-                # Docker (doesn't exist), not /app where COPY actually
-                # places files. Resolve relative to this file's own
-                # location instead.
-                _cortex_dir = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                    "causal-engine")
-                _sys.path.insert(0, _cortex_dir)
-                from cortex import Cortex, CortexContribution
-                Cortex().contribute(CortexContribution(
-                    f"pid:{pid}", "C3_deception", f"canary_file:{token.description}"))
+                # HTTP-based contribution instead of direct DuckDB
+                # access -- see pipeline/server_v2.py's POST
+                # /cortex/contribute for full rationale (DuckDB
+                # single-writer concurrency conflicts when multiple
+                # separate Docker containers open the same file).
+                import urllib.request, urllib.parse
+                reason = urllib.parse.quote(f"canary_file:{token.description}"[:200])
+                url = (f"http://pipeline:8000/cortex/contribute?"
+                       f"pid={pid}&pillar=C3_deception&reason={reason}")
+                req = urllib.request.Request(url, method="POST")
+                urllib.request.urlopen(req, timeout=3)
             except Exception as _ex:
                 log.debug(f"Cortex feed error: {_ex}")
 
