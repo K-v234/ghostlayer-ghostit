@@ -83,6 +83,15 @@ class CanaryServer:
             hit_method  = event_type,
             extra       = {"filepath": filepath, "pid": pid, "comm": comm},
         ))
+        if pid:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+                from cortex import Cortex, CortexContribution
+                Cortex().contribute(CortexContribution(
+                    f"pid:{pid}", "C3_deception", f"canary_file:{token.description}"))
+            except Exception as _ex:
+                log.debug(f"Cortex feed error: {_ex}")
 
     def _on_http_hit(self, path: str, client_ip: str, headers: dict):
         """Called when a canary HTTP endpoint is requested."""
