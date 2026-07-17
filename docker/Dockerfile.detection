@@ -7,6 +7,7 @@ COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir requests duckdb pytz numpy scikit-learn
 ENV CHAIN_STATE_PATH=/data/chain_state.json
 ENV INCIDENTS_DB_PATH=/data/ghostit_incidents.duckdb
+ENV CORTEX_DB_PATH=/data/cortex.duckdb
 CMD ["python3", "detection/engine.py", \
      "--api", "http://ghostit-pipeline:8000", \
      "--poll-interval", "10", \
