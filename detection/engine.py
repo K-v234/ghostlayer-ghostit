@@ -18,6 +18,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from detection.rules      import check_event, check_sequence, Detection
 from detection.mitre      import get_mitre_tag, KillChainStage
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "causal-engine"))
+from cortex import Cortex, CortexContribution
+_cortex = Cortex()
+def _feed_cortex(pid: int, pillar: str, reason: str):
+    """
+    Report a finding to the Cortex regardless of whether it crossed
+    this pillar's own alert threshold -- see causal-engine/cortex.py
+    for full rationale. Failures here are logged but never block
+    detection itself; the Cortex is an enhancement layer, not a
+    dependency the core pipeline should ever be blocked by.
+    """
+    if not pid:
+        return
+    try:
+        _cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
+    except Exception as ex:
+        log.debug(f"Cortex feed error: {ex}")
 from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
@@ -240,6 +257,7 @@ class DetectionEngine:
                             confidence  = 85,
                             evidence    = [e],
                         ))
+                        _feed_cortex(e_pid, "C14_lolbin", f"chain:{parent_comm}->{e_comm}")
                 # C2: Behavioral AI
                 b = self._behavioral.process_event(e)
                 if b:
@@ -251,6 +269,14 @@ class DetectionEngine:
                         confidence  = int(b.score * 100),
                         evidence    = [e],
                     ))
+                    _feed_cortex(e_pid, "C2_behavioral", b.rationale)
+                # Cortex: even when C2 does NOT cross its own threshold,
+                # still feed a light-weight signal if the raw event score
+                # is meaningfully elevated -- this is what lets genuinely
+                # sub-threshold behavioral drift still contribute to
+                # cross-pillar fusion instead of being discarded entirely.
+                elif e.get("score", 0) >= 40:
+                    _feed_cortex(e_pid, "C2_behavioral", f"elevated_event_score:{e.get('score')}")
                 # C15: Ransomware EMA
                 r = self._ransomware.process_event(e)
                 if r:
@@ -262,6 +288,7 @@ class DetectionEngine:
                         confidence  = min(100, int(r.z_score * 20)),
                         evidence    = [e],
                     ))
+                    _feed_cortex(e_pid, "C15_ransomware", f"{r.trigger}:z={r.z_score:.1f}")
                 # C14: LOLBin
                 l = self._lolbin.check_event(e)
                 if l:
@@ -273,6 +300,7 @@ class DetectionEngine:
                         confidence  = 85,
                         evidence    = [e],
                     ))
+                    _feed_cortex(e_pid, "C14_lolbin", l.technique)
                 # C19: LKRG kernel integrity violations
                 if e.get("type") == "kernel_integrity" and e.get("score", 0) >= 80:
                     detections.append(Detection(
