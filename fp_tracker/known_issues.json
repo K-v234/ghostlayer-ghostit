@@ -214,5 +214,23 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-16"
+  },
+  {
+    "id": "V3-STIX-EXPORT-VERIFIED-01",
+    "component": "V3",
+    "title": "STIX 2.1 threat intelligence export (CISA/India-CERT technical prep) built and verified with real data",
+    "detail": "Real, spec-correct STIX 2.1 exporter (integrations/threat_intel/stix_formatter.py) following the official OASIS STIX 2.1 specification: correct Bundle/Identity/Indicator object structure, deterministic UUID5 IDs (same alert always produces the same STIX ID -- important for deduplication), correct STIX Patterning Language syntax, correct RFC3339 timestamps. GET /threat-intel/stix pipeline endpoint exports current confirmed alerts as a live Bundle. Verified end-to-end with a real canary trigger against production cloud pipeline: correctly produced a valid STIX Indicator with real IP pattern matching, correct confidence, correct indicator_types labeling (after fixing a colon-suffix lookup bug found during testing). This is the technical prep piece for eventual India-CERT/CISA-equivalent partnership integration -- the data format is buildable and testable now, independent of when the actual government relationship exists.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-16"
+  },
+  {
+    "id": "FRIEND-AGENT-VERIFIED-01",
+    "component": "Deployment",
+    "title": "Second, independent Windows machine (friend's laptop) confirmed connected and detecting -- real multi-machine proof-of-concept",
+    "detail": "Friend installed GhostITAgent via Telegram-transferred package. Confirmed via: (1) real telemetry (file_open, DLL loads) attributed to a distinct source_ip, (2) a live canary trigger from his machine producing a real score-100 alert, (3) exact timestamp correlation (2026-07-17 04:58:36 UTC matched precisely between his own HTTP response Date header and server-side alert creation time) -- definitive proof despite an initial IP-mismatch confusion (his ipify-check IP differed from the canary-hit source IP, explained by carrier-grade NAT routing different connections through different pooled IPs, worth remembering for any future IP-based customer attribution design). Also fixed along the way: two missing AWS Lightsail firewall rules (ports 8080 and 8891).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-17"
   }
 ]
