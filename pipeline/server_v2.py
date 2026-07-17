@@ -462,6 +462,32 @@ def list_events(
     return JSONResponse({"total": total, "limit": limit, "offset": offset,
                          "events": hot_to_result(events)})
 
+@app.post("/adaptive-thresholds/observe")
+def adaptive_threshold_observe(pillar: str, score: float):
+    """HTTP-based score observation for Adaptive Threshold Calibration
+    -- same single-writer-via-pipeline pattern as Cortex/temporal
+    memory."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from adaptive_thresholds import AdaptiveThresholds
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from adaptive_thresholds import AdaptiveThresholds
+    AdaptiveThresholds().observe(pillar, score)
+    return JSONResponse({"status": "observed", "pillar": pillar})
+@app.get("/adaptive-thresholds/{pillar}")
+def adaptive_threshold_get(pillar: str):
+    """Current, locally-calibrated threshold for a pillar, based on
+    this deployment's own observed activity distribution."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from adaptive_thresholds import AdaptiveThresholds
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from adaptive_thresholds import AdaptiveThresholds
+    return JSONResponse(AdaptiveThresholds().get_threshold(pillar))
 @app.post("/temporal-memory/sighting")
 def temporal_memory_sighting(host: str, comm: str, resource: str, pillar: str, reason: str):
     """HTTP-based sighting recorder for Temporal Attack-Graph Memory --

@@ -6,6 +6,7 @@ COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir duckdb
 ENV CORTEX_DB_PATH=/data/cortex.duckdb
 ENV TEMPORAL_DB_PATH=/data/temporal_memory.duckdb
+ENV THRESHOLDS_DB_PATH=/data/adaptive_thresholds.duckdb
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
     numpy pandas pyarrow pytz

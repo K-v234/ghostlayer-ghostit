@@ -39,6 +39,20 @@ def _feed_cortex(pid: int, pillar: str, reason: str):
         urllib.request.urlopen(req, timeout=3)
     except Exception as ex:
         log.debug(f"Cortex feed error: {ex}")
+def _observe_threshold(pillar: str, score: float):
+    """
+    Report a raw score observation to Adaptive Threshold Calibration,
+    REGARDLESS of whether any detection fired -- calibration needs
+    the full distribution of normal activity, not just the already-
+    flagged tail, to learn this deployment's genuine baseline.
+    """
+    try:
+        import urllib.parse
+        url = f"http://ghostit-pipeline:8000/adaptive-thresholds/observe?pillar={urllib.parse.quote(pillar)}&score={score}"
+        req = urllib.request.Request(url, method="POST")
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as ex:
+        log.debug(f"Adaptive threshold observe error: {ex}")
 def _feed_temporal_memory(host: str, comm: str, resource: str, pillar: str, reason: str):
     """
     Report a sighting to Temporal Attack-Graph Memory via HTTP (same
@@ -282,6 +296,12 @@ class DetectionEngine:
                         ))
                         _feed_cortex(e_pid, "C14_lolbin", f"chain:{parent_comm}->{e_comm}")
                 # C2: Behavioral AI
+                # Feed every raw event score to Adaptive Threshold
+                # Calibration, regardless of whether any pillar fires --
+                # calibration needs the full baseline distribution, not
+                # just the already-flagged tail.
+                if e.get("score") is not None:
+                    _observe_threshold("C2_behavioral", e.get("score"))
                 b = self._behavioral.process_event(e)
                 if b:
                     detections.append(Detection(

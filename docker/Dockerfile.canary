@@ -7,6 +7,7 @@ COPY causal-engine/ ./causal-engine/
 RUN pip install --no-cache-dir duckdb
 ENV CORTEX_DB_PATH=/data/cortex.duckdb
 ENV TEMPORAL_DB_PATH=/data/temporal_memory.duckdb
+ENV THRESHOLDS_DB_PATH=/data/adaptive_thresholds.duckdb
 
 CMD ["python3", "deception/canary/server.py", \
      "--http-port", "8080", \
