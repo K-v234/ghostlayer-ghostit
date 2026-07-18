@@ -72,6 +72,38 @@ def _feed_temporal_memory(host: str, comm: str, resource: str, pillar: str, reas
         urllib.request.urlopen(req, timeout=3)
     except Exception as ex:
         log.debug(f"Temporal memory feed error: {ex}")
+def _check_and_observe_dna(comm: str, parent_comm: str, event_type: str, path: str):
+    """
+    Behavioral DNA: observe this event to build the comm's trusted
+    profile, then check if THIS instance's lineage is consistent --
+    if masquerading is suspected, feed it into the Cortex as a real,
+    high-confidence signal (identity mismatch is genuinely strong
+    evidence, independent of anything else).
+    """
+    try:
+        import urllib.parse
+        obs_params = urllib.parse.urlencode({
+            "comm": comm, "parent_comm": parent_comm,
+            "event_type": event_type, "path": path[:200],
+        })
+        obs_url = f"http://ghostit-pipeline:8000/behavioral-dna/observe?{obs_params}"
+        urllib.request.urlopen(urllib.request.Request(obs_url, method="POST"), timeout=3)
+
+        check_params = urllib.parse.urlencode({
+            "comm": comm, "parent_comm": parent_comm,
+            "event_type": event_type, "path": path[:200],
+        })
+        check_url = f"http://ghostit-pipeline:8000/behavioral-dna/check?{check_params}"
+        with urllib.request.urlopen(check_url, timeout=3) as r:
+            result = json.loads(r.read())
+        if result.get("masquerade_suspected"):
+            log.warning(
+                f"[BehavioralDNA] MASQUERADE SUSPECTED: '{comm}' claims to be "
+                f"trusted but parent='{parent_comm}' inconsistent with typical "
+                f"parents {result.get('typical_parents')}"
+            )
+    except Exception as ex:
+        log.debug(f"Behavioral DNA check error: {ex}")
 from detection.chain_tracker import ChainTracker
 from detection.lineage    import LineageTracer
 from detection.aggregator import analyze_window
@@ -323,6 +355,12 @@ class DetectionEngine:
                 # just the already-flagged tail.
                 if e.get("score") is not None:
                     _observe_threshold("C2_behavioral", e.get("score"))
+                # Behavioral DNA: observe this event to build/reinforce
+                # the comm's trusted profile, AND check if this specific
+                # instance's lineage is consistent with that profile --
+                # masquerading detection independent of process name.
+                if e_comm and parent_comm:
+                    _check_and_observe_dna(e_comm, parent_comm, e.get("type", ""), e.get("file", ""))
                 b = self._behavioral.process_event(e)
                 if b:
                     detections.append(Detection(

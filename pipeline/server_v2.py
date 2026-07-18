@@ -500,6 +500,69 @@ def threat_mesh_check(comm: str, resource: str):
         from threat_mesh import ThreatMesh
     mesh = ThreatMesh()
     return JSONResponse(mesh.check_immunity(comm, resource))
+@app.post("/behavioral-dna/observe")
+def dna_observe(comm: str, parent_comm: str, event_type: str, path: str = ""):
+    """Record a real behavioral observation, building this comm's
+    trusted profile from genuine local activity."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from behavioral_dna import BehavioralDNA
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from behavioral_dna import BehavioralDNA
+    BehavioralDNA().observe(comm, parent_comm, event_type, path)
+    return JSONResponse({"status": "observed"})
+@app.get("/behavioral-dna/check")
+def dna_check(comm: str, parent_comm: str, event_type: str = "", path: str = ""):
+    """Check if this process instance's behavior (esp. parent lineage)
+    is consistent with comm's established trusted profile -- detects
+    masquerading regardless of how convincing the filename is."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from behavioral_dna import BehavioralDNA
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from behavioral_dna import BehavioralDNA
+    return JSONResponse(BehavioralDNA().check_masquerade(comm, parent_comm, event_type, path))
+@app.post("/active-deception/inject")
+def deception_inject(entity_id: str, context_hint: str, cortex_score: float):
+    """Generate fresh, contextually-relevant fake data for a
+    suspicious entity -- actively wastes attacker reconnaissance
+    effort rather than just passively detecting."""
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from active_deception import ActiveDeception
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from active_deception import ActiveDeception
+    return JSONResponse(ActiveDeception().generate_injection(entity_id, context_hint, cortex_score))
+@app.get("/explain/{pid}")
+def explain_entity(pid: int):
+    """
+    The Explainability Engine: pulls real evidence from every pillar
+    for this entity and synthesizes it into one coherent, human-
+    readable incident narrative -- the actual answer to 'why is this
+    process suspicious,' explained the way a human analyst would.
+    """
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    for mod_name in ["cortex", "temporal_memory", "threat_mesh",
+                       "behavioral_dna", "autonomous_response", "explainability_engine"]:
+        pass
+    try:
+        from cortex import Cortex
+        from explainability_engine import build_narrative
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from cortex import Cortex
+        from explainability_engine import build_narrative
+    entity_id = f"pid:{pid}"
+    cortex_data = Cortex().get_score(entity_id)
+    narrative = build_narrative(entity_id, cortex_data=cortex_data)
+    return JSONResponse(narrative)
 @app.get("/threat-mesh/signals")
 def threat_mesh_signals(limit: int = Query(50, ge=1, le=200)):
     """All currently active mesh immunity signals -- the real,
@@ -657,6 +720,20 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
             )
     except Exception as _ex:
         log.debug(f"Autonomous response decision error: {_ex}")
+    # Active Deception: below the autonomous-action threshold but
+    # above the (deliberately lower) injection threshold, generate
+    # fresh fake data targeted at this suspicious entity -- lower
+    # risk than suspending/isolating, so it engages earlier.
+    try:
+        from active_deception import ActiveDeception
+    except ImportError:
+        import sys as _sys3
+        _sys3.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from active_deception import ActiveDeception
+    try:
+        ActiveDeception().generate_injection(f"pid:{pid}", reason, result["score"])
+    except Exception as _ex2:
+        log.debug(f"Active deception injection error: {_ex2}")
     return JSONResponse(result)
 @app.get("/cortex/{pid}")
 def get_cortex_score(pid: int):
