@@ -56,6 +56,20 @@ def build_narrative(entity_id: str, cortex_data: dict = None,
         )
         for c in cortex_data.get("contributions", [])[:3]:
             evidence_summary.append(f"{c['pillar']}: {c['reason']} ({_humanize_age(c['age_sec'])})")
+    elif cortex_data and cortex_data.get("distinct_pillars", 0) == 1:
+        # Genuinely different, calibrated language for single-pillar
+        # cases -- still real, worth reporting, but explicitly NOT
+        # claiming cross-pillar confirmation, which single-pillar
+        # evidence never provides.
+        pillar = cortex_data["pillars"][0]
+        score = cortex_data["score"]
+        story_parts.append(
+            f"This process has a score of {score}/100 from a single detection "
+            f"system ({pillar}) -- worth monitoring, but not yet confirmed by "
+            f"any independent source"
+        )
+        for c in cortex_data.get("contributions", [])[:3]:
+            evidence_summary.append(f"{c['pillar']}: {c['reason']} ({_humanize_age(c['age_sec'])})")
 
     if dna_data and dna_data.get("masquerade_suspected"):
         story_parts.append(
