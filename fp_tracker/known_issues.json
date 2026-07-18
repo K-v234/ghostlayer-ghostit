@@ -304,5 +304,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-17"
+  },
+  {
+    "id": "EXPLAINABILITY-C19-FUSION-WIRING-01",
+    "component": "Architecture",
+    "title": "Explainability Engine extended with Autonomous Response history + C19/LKRG wired into Cortex as host-level entity",
+    "detail": "Two real, scoped upgrades: (1) /explain/{pid} now pulls real Autonomous Response decision history alongside Cortex score, verified live. (2) C19/LKRG kernel integrity violations now feed Cortex as host-level entities. Remaining scoped-but-not-completed: Windows-specific verification of Behavioral DNA/Active Deception (needs real Windows machine, not yet done), dashboard UI visibility for Cortex/Mesh/Explainability data (frontend work not yet started).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-18"
   }
 ]
