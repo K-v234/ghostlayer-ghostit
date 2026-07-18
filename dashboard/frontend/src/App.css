@@ -355,3 +355,19 @@ body { background: #070b14; color: #c8d4e8; font-family: -apple-system, BlinkMac
 .guided-result.urgency-critical { border-left: 4px solid #ff3b3b; }
 .guided-result.urgency-high { border-left: 4px solid #ff8c00; }
 .guided-action-btn { font-weight: bold; font-size: 1.1em; color: #fff; margin-bottom: 8px; }
+
+.identity-input { width: 100%; padding: 8px; background: #1a1a26; border: 1px solid #2a2a3a; color: #fff; border-radius: 4px; margin-bottom: 8px; }
+.identity-row { margin-bottom: 8px; color: #ccc; font-size: 0.9em; }
+.identity-num { width: 50px; background: #1a1a26; border: 1px solid #2a2a3a; color: #fff; border-radius: 4px; padding: 2px 6px; }
+.identity-result { padding: 16px; border-radius: 6px; background: #1a1a26; margin-top: 10px; }
+.identity-result.risk-high { border-left: 4px solid #ff3b3b; }
+.identity-result.risk-medium { border-left: 4px solid #ff8c00; }
+.identity-result.risk-low { border-left: 4px solid #44cc44; }
+.identity-score { font-size: 1.5em; font-weight: bold; color: #fff; }
+.identity-rec { color: #999; margin: 4px 0 8px 0; }
+
+.rollback-btn { padding: 10px 20px; background: #ff3b3b; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+.rollback-status { color: #999; }
+.rollback-result { padding: 10px; border-radius: 4px; margin-top: 8px; }
+.rollback-result.rollback-success { background: rgba(68,204,68,0.15); color: #44cc44; }
+.rollback-result.rollback-fail { background: rgba(255,140,0,0.15); color: #ff8c00; }

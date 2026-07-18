@@ -258,6 +258,35 @@ function LiveTicker({ alerts }) {
   );
 }
 
+function RollbackAction({ filepath }) {
+  const [status, setStatus] = useState("idle");
+  const [result, setResult] = useState(null);
+  const doRollback = () => {
+    setStatus("running");
+    fetch(PIPELINE + "/rollback?affected_paths=" + encodeURIComponent(filepath), { method: "POST" })
+      .then(r => r.json())
+      .then(res => { setResult(res); setStatus("done"); })
+      .catch(() => setStatus("error"));
+  };
+  return (
+    <div className="rollback-action">
+      <div className="detail-section">Ransomware Recovery</div>
+      {status === "idle" && (
+        <button className="rollback-btn" onClick={doRollback}>Restore File From Backup</button>
+      )}
+      {status === "running" && <div className="rollback-status">Restoring...</div>}
+      {status === "done" && result && (
+        <div className={"rollback-result " + (result.restored_count > 0 ? "rollback-success" : "rollback-fail")}>
+          {result.restored_count > 0
+            ? "File successfully restored to its pre-attack state."
+            : "No backup snapshot was available for this file yet."}
+        </div>
+      )}
+      {status === "error" && <div className="rollback-result rollback-fail">Rollback request failed.</div>}
+    </div>
+  );
+}
+
 function AlertFeed({ token, sseStatus, liveAlerts }) {
   const { data } = useAuthFetch(token, `${API}/alerts?limit=50`, 30000);
   const [selected, setSelected] = useState(null);
@@ -282,6 +311,9 @@ function AlertFeed({ token, sseStatus, liveAlerts }) {
         <div className="detail-row"><span>PII Flag</span><span className="detail-val">{selected.dpdp_pii_flag ? "⚠️ Yes" : "✅ No"}</span></div>
         <div className="detail-section">Detection Reasons</div>
         {(selected.reasons || []).map((r, i) => <div key={i} className="reason-tag">{r}</div>)}
+        {(selected.file || "").includes("ransomware") || (selected.reasons || []).some(r => r.toLowerCase().includes("ransomware")) ? (
+          <RollbackAction filepath={selected.file} />
+        ) : null}
       </div>
     </div>
   );
@@ -731,11 +763,49 @@ function GuidedResponsePanel() {
   );
 }
 
+function IdentityRiskPanel() {
+  const [username, setUsername] = useState("");
+  const [hour, setHour] = useState(new Date().getHours());
+  const [newDevice, setNewDevice] = useState(false);
+  const [mfa, setMfa] = useState(true);
+  const [result, setResult] = useState(null);
+  const check = () => {
+    if (!username) return;
+    const params = new URLSearchParams({ username, login_hour: hour, is_new_device: newDevice, mfa_used: mfa });
+    fetch(PIPELINE + "/identity-risk?" + params.toString()).then(r => r.json()).then(setResult).catch(() => {});
+  };
+  return (
+    <div className="panel">
+      <h3>Identity Risk Check</h3>
+      <p className="panel-sub">Check a real login event for identity-based risk</p>
+      <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} className="identity-input" />
+      <div className="identity-row">
+        <label>Login hour: <input type="number" min="0" max="23" value={hour} onChange={e => setHour(e.target.value)} className="identity-num" /></label>
+      </div>
+      <div className="identity-row">
+        <label><input type="checkbox" checked={newDevice} onChange={e => setNewDevice(e.target.checked)} /> New/unrecognized device</label>
+      </div>
+      <div className="identity-row">
+        <label><input type="checkbox" checked={mfa} onChange={e => setMfa(e.target.checked)} /> MFA used</label>
+      </div>
+      <button onClick={check} className="guided-btn">Check Risk</button>
+      {result && (
+        <div className={"identity-result risk-" + (result.identity_risk_score >= 60 ? "high" : result.identity_risk_score >= 30 ? "medium" : "low")}>
+          <div className="identity-score">{result.identity_risk_score}/100</div>
+          <div className="identity-rec">{result.recommendation}</div>
+          <ul>{result.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MarketFeaturesPanel() {
   return (
     <div className="living-intelligence-grid">
       <InsuranceReportPanel />
       <GuidedResponsePanel />
+      <IdentityRiskPanel />
     </div>
   );
 }
