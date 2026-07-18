@@ -578,6 +578,108 @@ function CausalIntelligence({ token }) {
   );
 }
 
+// ============================================================
+// Living Intelligence Panel — Cortex, Threat Mesh, Explainability
+// ============================================================
+function CortexPanel() {
+  const data = usePipeline("/cortex?limit=15", 10000);
+  const entities = data?.top_entities || [];
+  return (
+    <div className="panel">
+      <h3>Cortex — Live Cross-Pillar Suspicion</h3>
+      <p className="panel-sub">Fused confidence score per process, combining every detection pillar in real time</p>
+      {entities.length === 0 && <div className="empty-state">No elevated entities right now</div>}
+      {entities.map((e, i) => (
+        <div key={i} className="cortex-row">
+          <div className="cortex-entity">{e.entity_id}</div>
+          <div className="cortex-score-bar">
+            <div className="cortex-score-fill" style={{
+              width: `${e.score}%`,
+              background: e.score >= 75 ? "#ff3b3b" : e.score >= 50 ? "#ff8c00" : "#44cc44",
+            }} />
+            <span className="cortex-score-label">{e.score.toFixed(1)}</span>
+          </div>
+          <div className="cortex-pillars">
+            {e.pillars.map((p, j) => <span key={j} className="pillar-chip">{p}</span>)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ThreatMeshPanel() {
+  const data = usePipeline("/threat-mesh/signals?limit=10", 15000);
+  const signals = data?.active_signals || [];
+  return (
+    <div className="panel">
+      <h3>Threat Mesh — Collective Immunity</h3>
+      <p className="panel-sub">Confirmed threat patterns shared instantly across every connected deployment</p>
+      {signals.length === 0 && <div className="empty-state">No active mesh signals</div>}
+      {signals.map((s, i) => (
+        <div key={i} className="mesh-row">
+          <div className="mesh-header">
+            <span className="mesh-tactic">{s.tactic || "Unknown"} / {s.technique || "-"}</span>
+            <span className="mesh-confirmations">{s.confirmations}x confirmed</span>
+          </div>
+          <div className="mesh-detail">Pattern: {s.comm_pattern} | {s.resource_pattern}</div>
+          <div className="mesh-origin">First confirmed on: {s.origin_deployment}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExplainabilityPanel() {
+  const [pid, setPid] = useState("");
+  const [narrative, setNarrative] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const lookup = () => {
+    if (!pid) return;
+    setLoading(true);
+    fetch(`${PIPELINE}/explain/${pid}`)
+      .then(r => r.json())
+      .then(setNarrative)
+      .catch(() => setNarrative(null))
+      .finally(() => setLoading(false));
+  };
+  return (
+    <div className="panel">
+      <h3>Explainability Engine — Ask "Why?"</h3>
+      <p className="panel-sub">Get a plain-English incident narrative for any process, synthesized across every pillar</p>
+      <div className="explain-search">
+        <input
+          type="text" placeholder="Enter PID..." value={pid}
+          onChange={e => setPid(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && lookup()}
+        />
+        <button onClick={lookup} disabled={loading}>{loading ? "..." : "Explain"}</button>
+      </div>
+      {narrative && (
+        <div className="explain-result">
+          <p className="explain-narrative">{narrative.narrative}</p>
+          {narrative.evidence_summary && narrative.evidence_summary.length > 0 && (
+            <ul className="explain-evidence">
+              {narrative.evidence_summary.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          )}
+          <div className="explain-meta">{narrative.pillars_consulted} pillar(s) consulted</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LivingIntelligencePanel() {
+  return (
+    <div className="living-intelligence-grid">
+      <CortexPanel />
+      <ThreatMeshPanel />
+      <ExplainabilityPanel />
+    </div>
+  );
+}
+
 const TABS = [
   { id: "overview",   label: "Overview",  icon: "🏠" },
   { id: "alerts",     label: "Alerts",    icon: "🚨" },
@@ -586,6 +688,7 @@ const TABS = [
   { id: "mitre",      label: "MITRE",     icon: "🎯" },
   { id: "compliance", label: "DPDP",      icon: "🛡️" },
   { id: "causal",     label: "Causal AI", icon: "🧠" },
+  { id: "living",     label: "Living Intel", icon: "🫀" },
 ];
 
 export default function App() {
@@ -687,6 +790,7 @@ export default function App() {
           {tab === "mitre"      && <MitreMap token={token} />}
           {tab === "compliance" && <Compliance token={token} />}
           {tab === "causal"     && <CausalIntelligence token={token} />}
+          {tab === "living"     && <LivingIntelligencePanel />}
         </div>
       </main>
     </div>
