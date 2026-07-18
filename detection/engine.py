@@ -39,6 +39,24 @@ def _feed_cortex(pid: int, pillar: str, reason: str):
         urllib.request.urlopen(req, timeout=3)
     except Exception as ex:
         log.debug(f"Cortex feed error: {ex}")
+def _feed_cortex_host(host: str, pillar: str, reason: str):
+    """
+    Host-level Cortex contribution -- for signals like C19's kernel
+    integrity violations that aren't tied to one PID, but genuinely
+    compromise trust in the entire machine. Uses 'host:{hostname}' as
+    the Cortex entity ID instead of 'pid:{pid}'.
+    """
+    if not host or host == "unknown":
+        return
+    try:
+        import urllib.parse
+        url = (f"http://ghostit-pipeline:8000/cortex/contribute?"
+               f"pid=host_{urllib.parse.quote(host)}&pillar={urllib.parse.quote(pillar)}"
+               f"&reason={urllib.parse.quote(reason[:200])}")
+        req = urllib.request.Request(url, method="POST")
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as ex:
+        log.debug(f"Cortex host-feed error: {ex}")
 def _observe_threshold(pillar: str, score: float):
     """
     Report a raw score observation to Adaptive Threshold Calibration,
@@ -414,6 +432,14 @@ class DetectionEngine:
                         confidence  = 90,
                         evidence    = [e],
                     ))
+                    # C19 feeds Cortex as a HOST-level entity, not PID
+                    # -- kernel integrity violations aren't tied to one
+                    # process, they compromise the whole machine's
+                    # trustworthiness. Every process running on a host
+                    # with a kernel integrity violation should
+                    # genuinely be treated with elevated suspicion.
+                    _feed_cortex_host(e.get("host", "unknown"), "C19_kernel",
+                                       e.get("file", "")[:150])
 
             by_pid: dict[int, list] = {}
             for e in new_events:
