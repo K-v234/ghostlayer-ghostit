@@ -680,6 +680,66 @@ function LivingIntelligencePanel() {
   );
 }
 
+function InsuranceReportPanel() {
+  const data = usePipeline("/insurance-report", 30000);
+  if (!data) return <div className="panel"><h3>Insurance Readiness Report</h3><div className="empty-state">Loading...</div></div>;
+  return (
+    <div className="panel">
+      <h3>Cyber Insurance Readiness Report</h3>
+      <p className="panel-sub">Real posture summary insurers require for coverage</p>
+      <div className="insurance-score">
+        <div className="insurance-score-number" style={{color: data.insurance_readiness_score >= 90 ? "#44cc44" : data.insurance_readiness_score >= 70 ? "#ff8c00" : "#ff3b3b"}}>
+          {data.insurance_readiness_score}/100
+        </div>
+        <div className="insurance-tier">{data.readiness_tier}</div>
+      </div>
+      <div className="insurance-details">
+        <div>Uptime: {data.monitoring_uptime_pct}%</div>
+        <div>Incidents Tracked: {data.total_incidents_tracked}</div>
+        <div>Kernel Integrity: {data.kernel_integrity_monitoring}</div>
+        <div>Data Residency: {data.data_residency}</div>
+      </div>
+    </div>
+  );
+}
+
+function GuidedResponsePanel() {
+  const [ruleId, setRuleId] = useState("C15_RANSOMWARE");
+  const [guidance, setGuidance] = useState(null);
+  const lookup = () => {
+    fetch(`${PIPELINE}/guided-action/${ruleId}?score=90`).then(r => r.json()).then(setGuidance).catch(() => {});
+  };
+  useEffect(() => { lookup(); /* eslint-disable-next-line */ }, []);
+  return (
+    <div className="panel">
+      <h3>Guided One-Click Response</h3>
+      <p className="panel-sub">Plain-language recommended action — no security expertise required</p>
+      <select value={ruleId} onChange={e => setRuleId(e.target.value)} className="guided-select">
+        <option value="C15_RANSOMWARE">Ransomware Detected</option>
+        <option value="canary_hit">Decoy File Accessed</option>
+        <option value="C19_LKRG_INTEGRITY">Kernel Tampering</option>
+        <option value="R003">Suspicious Network Connection</option>
+      </select>
+      <button onClick={lookup} className="guided-btn">Get Recommendation</button>
+      {guidance && (
+        <div className={`guided-result urgency-${guidance.urgency}`}>
+          <div className="guided-action-btn">{guidance.button_label}</div>
+          <p>{guidance.plain_explanation}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketFeaturesPanel() {
+  return (
+    <div className="living-intelligence-grid">
+      <InsuranceReportPanel />
+      <GuidedResponsePanel />
+    </div>
+  );
+}
+
 const TABS = [
   { id: "overview",   label: "Overview",  icon: "🏠" },
   { id: "alerts",     label: "Alerts",    icon: "🚨" },
@@ -689,6 +749,7 @@ const TABS = [
   { id: "compliance", label: "DPDP",      icon: "🛡️" },
   { id: "causal",     label: "Causal AI", icon: "🧠" },
   { id: "living",     label: "Living Intel", icon: "🫀" },
+  { id: "market",      label: "Business", icon: "💼" },
 ];
 
 export default function App() {
@@ -791,6 +852,7 @@ export default function App() {
           {tab === "compliance" && <Compliance token={token} />}
           {tab === "causal"     && <CausalIntelligence token={token} />}
           {tab === "living"     && <LivingIntelligencePanel />}
+          {tab === "market"     && <MarketFeaturesPanel />}
         </div>
       </main>
     </div>

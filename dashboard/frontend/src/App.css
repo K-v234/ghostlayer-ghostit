@@ -333,3 +333,25 @@ body { background: #070b14; color: #c8d4e8; font-family: -apple-system, BlinkMac
   font-size: 0.75em;
   color: #666;
 }
+
+.insurance-score { text-align: center; padding: 20px 0; }
+.insurance-score-number { font-size: 2.5em; font-weight: bold; }
+.insurance-tier { color: #999; margin-top: 4px; }
+.insurance-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: #ccc; font-size: 0.9em; padding-top: 12px; border-top: 1px solid #2a2a3a; }
+.guided-select { width: 100%; padding: 8px; background: #1a1a26; border: 1px solid #2a2a3a; color: #fff; border-radius: 4px; margin-bottom: 10px; }
+.guided-btn { padding: 8px 16px; background: #3d3c9d; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 12px; }
+.guided-result { padding: 16px; border-radius: 6px; background: #1a1a26; }
+.guided-result.urgency-critical { border-left: 4px solid #ff3b3b; }
+.guided-result.urgency-high { border-left: 4px solid #ff8c00; }
+.guided-action-btn { font-weight: bold; font-size: 1.1em; color: #fff; margin-bottom: 8px; }
+
+.insurance-score { text-align: center; padding: 20px 0; }
+.insurance-score-number { font-size: 2.5em; font-weight: bold; }
+.insurance-tier { color: #999; margin-top: 4px; }
+.insurance-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: #ccc; font-size: 0.9em; padding-top: 12px; border-top: 1px solid #2a2a3a; }
+.guided-select { width: 100%; padding: 8px; background: #1a1a26; border: 1px solid #2a2a3a; color: #fff; border-radius: 4px; margin-bottom: 10px; }
+.guided-btn { padding: 8px 16px; background: #3d3c9d; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 12px; }
+.guided-result { padding: 16px; border-radius: 6px; background: #1a1a26; }
+.guided-result.urgency-critical { border-left: 4px solid #ff3b3b; }
+.guided-result.urgency-high { border-left: 4px solid #ff8c00; }
+.guided-action-btn { font-weight: bold; font-size: 1.1em; color: #fff; margin-bottom: 8px; }
