@@ -201,6 +201,34 @@ async def stream_alerts(
         }
     )
 
+@app.get("/api/msp/customers")
+def msp_list_customers(session=Depends(_verify_session)):
+    """
+    MSP Multi-Client Console -- core endpoint: lists every customer
+    this deployment manages, with a real, live summary (alert count,
+    endpoint count) per customer. Only accessible to the super-admin
+    (customer_id == "_all_") -- an MSP's own staff, not any individual
+    customer, who should only ever see their own scoped data (existing
+    customer_id filtering elsewhere is unchanged).
+    """
+    if session.get("customer_id") != "_all_":
+        raise HTTPException(403, "MSP console requires super-admin access")
+    tenancy_config = load_tenancy_config()
+    customers = tenancy_config.get("customers", {})
+    summary = []
+    all_alerts = _fetch_alerts(500)
+    for cid, cdata in customers.items():
+        if cid == "_all_":
+            continue
+        scoped_alerts = filter_events_by_customer(all_alerts, cid)
+        summary.append({
+            "customer_id": cid,
+            "name": cdata.get("name", cid),
+            "ip_ranges": cdata.get("ip_ranges", []),
+            "alert_count_24h": len(scoped_alerts),
+            "critical_alerts": len([a for a in scoped_alerts if a.get("score", 0) >= 90]),
+        })
+    return {"total_customers": len(summary), "customers": summary}
 @app.get("/api/alerts")
 def get_alerts(limit: int = 100, session=Depends(_verify_session)):
     # V1.5 multi-tenant: scope results to the logged-in user's customer.

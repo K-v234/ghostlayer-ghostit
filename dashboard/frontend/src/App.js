@@ -810,6 +810,35 @@ function MarketFeaturesPanel() {
   );
 }
 
+function MSPConsolePanel({ token }) {
+  const { data, error } = useAuthFetch(token, `${API}/msp/customers`, 20000);
+  if (error) return (
+    <div className="panel">
+      <h3>MSP Multi-Client Console</h3>
+      <div className="empty-state">Requires super-admin access to view across all clients</div>
+    </div>
+  );
+  const customers = data?.customers || [];
+  return (
+    <div className="panel">
+      <h3>MSP Multi-Client Console</h3>
+      <p className="panel-sub">All managed clients at a glance -- {data?.total_customers || 0} client(s)</p>
+      {customers.length === 0 && <div className="empty-state">No customers configured yet</div>}
+      {customers.map((c, i) => (
+        <div key={i} className="msp-customer-row">
+          <div className="msp-customer-name">{c.name}</div>
+          <div className="msp-customer-stats">
+            <span className={c.critical_alerts > 0 ? "msp-critical" : "msp-ok"}>
+              {c.critical_alerts > 0 ? `${c.critical_alerts} critical` : "Clean"}
+            </span>
+            <span className="msp-alert-count">{c.alert_count_24h} alerts</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const TABS = [
   { id: "overview",   label: "Overview",  icon: "🏠" },
   { id: "alerts",     label: "Alerts",    icon: "🚨" },
@@ -820,6 +849,7 @@ const TABS = [
   { id: "causal",     label: "Causal AI", icon: "🧠" },
   { id: "living",     label: "Living Intel", icon: "🫀" },
   { id: "market",      label: "Business", icon: "💼" },
+  { id: "msp",         label: "MSP Console", icon: "🏢" },
 ];
 
 export default function App() {
@@ -923,6 +953,7 @@ export default function App() {
           {tab === "causal"     && <CausalIntelligence token={token} />}
           {tab === "living"     && <LivingIntelligencePanel />}
           {tab === "market"     && <MarketFeaturesPanel />}
+          {tab === "msp"        && <MSPConsolePanel token={token} />}
         </div>
       </main>
     </div>

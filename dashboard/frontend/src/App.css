@@ -371,3 +371,10 @@ body { background: #070b14; color: #c8d4e8; font-family: -apple-system, BlinkMac
 .rollback-result { padding: 10px; border-radius: 4px; margin-top: 8px; }
 .rollback-result.rollback-success { background: rgba(68,204,68,0.15); color: #44cc44; }
 .rollback-result.rollback-fail { background: rgba(255,140,0,0.15); color: #ff8c00; }
+
+.msp-customer-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #2a2a3a; }
+.msp-customer-name { font-weight: bold; color: #ddd; }
+.msp-customer-stats { display: flex; gap: 12px; align-items: center; }
+.msp-critical { color: #ff3b3b; font-weight: bold; }
+.msp-ok { color: #44cc44; }
+.msp-alert-count { color: #999; font-size: 0.85em; }
