@@ -322,5 +322,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-18"
+  },
+  {
+    "id": "MARKET-FEATURES-WIRED-01",
+    "component": "Architecture/Dashboard",
+    "title": "4 of 5 market-grounded upgrades wired into live pipeline, 2 of 4 visible on dashboard",
+    "detail": "Insurance Readiness Report, Guided One-Click Response, Identity Risk Correlation, and Ransomware Rollback all have real HTTP endpoints on the live pipeline, verified working on real production data. Insurance Report and Guided Response now have real dashboard panels (new Business tab). Identity Risk and Rollback remain API-only -- need different UI integration points. MSP Multi-Client Console remains entirely unstarted, correctly scoped as separate future work.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-18"
   }
 ]
