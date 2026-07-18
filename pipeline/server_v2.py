@@ -554,14 +554,31 @@ def explain_entity(pid: int):
         pass
     try:
         from cortex import Cortex
+        from temporal_memory import TemporalMemory
+        from autonomous_response import AutonomousResponseEngine
         from explainability_engine import build_narrative
     except ImportError:
         _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
         from cortex import Cortex
+        from temporal_memory import TemporalMemory
+        from autonomous_response import AutonomousResponseEngine
         from explainability_engine import build_narrative
     entity_id = f"pid:{pid}"
     cortex_data = Cortex().get_score(entity_id)
-    narrative = build_narrative(entity_id, cortex_data=cortex_data)
+    # Pull real recent decision history for this specific entity, if
+    # Autonomous Response has ever made one -- gives the narrative
+    # real "what action was taken" evidence, not just detection scores.
+    response_history = AutonomousResponseEngine().get_decision_history(entity_id, limit=1)
+    response_decision = None
+    if response_history:
+        d = response_history[0]
+        response_decision = {
+            "decision": "action_taken" if d["executed"] else "action_simulated",
+            "tier": d["tier"], "action": d["action_name"],
+            "description": d["reasoning"],
+        }
+    narrative = build_narrative(entity_id, cortex_data=cortex_data,
+                                  response_decision=response_decision)
     return JSONResponse(narrative)
 @app.get("/threat-mesh/signals")
 def threat_mesh_signals(limit: int = Query(50, ge=1, le=200)):
