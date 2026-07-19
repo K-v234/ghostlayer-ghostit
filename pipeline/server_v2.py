@@ -756,6 +756,32 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
         from cortex import Cortex, CortexContribution
     cortex = Cortex()
     result = cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
+    # Curiosity Engine: check on EVERY contribution whether this
+    # entity has entered the genuine ambiguous middle.
+    try:
+        from curiosity_engine import should_investigate, build_investigation_plan
+    except ImportError:
+        import sys as _sys_cur
+        _sys_cur.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from curiosity_engine import should_investigate, build_investigation_plan
+    try:
+        if should_investigate(result["score"], result["distinct_pillars"]):
+            plan = build_investigation_plan(f"pid:{pid}", pillar, result["score"])
+            log.info(f"[Curiosity] Investigation triggered for pid:{pid}: {plan['reasoning']}")
+    except Exception as _ex_cur:
+        log.debug(f"Curiosity engine error: {_ex_cur}")
+    # World-Model: every real contribution is real evidence this
+    # entity exists and is active.
+    try:
+        from world_model import WorldModel
+    except ImportError:
+        import sys as _sys_wm
+        _sys_wm.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from world_model import WorldModel
+    try:
+        WorldModel().observe(f"pid:{pid}", "unknown", pillar, event_type="cortex_contribution")
+    except Exception as _ex_wm:
+        log.debug(f"World-model observe error: {_ex_wm}")
     # Autonomous Response Engine: every Cortex contribution is a real
     # opportunity for the fused score to have crossed the action
     # threshold -- check on every contribution, not on a separate
@@ -771,6 +797,43 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
             f"pid:{pid}", result["score"], result["pillars"],
             f"triggered by new contribution from {pillar}: {reason}"
         )
+        # Safety Governor: automatically consulted the instant a real
+        # decision is proposed, BEFORE any real action or Threat Mesh
+        # broadcast -- checks World-Model blast radius/criticality and
+        # may downgrade the proposed tier for genuine business reasons.
+        if decision.get("tier"):
+            try:
+                from world_model import WorldModel
+                from safety_governor import govern
+            except ImportError:
+                import sys as _sys_gov
+                _sys_gov.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+                from world_model import WorldModel
+                from safety_governor import govern
+            try:
+                assessment = WorldModel().what_breaks_if_isolated(f"pid:{pid}")
+                verdict = govern(decision["tier"], decision.get("action", ""), assessment)
+                if verdict["verdict"] != "approved":
+                    log.warning(f"[Governor] Decision for pid:{pid} {verdict['verdict']}: {verdict['reasons']}")
+                    decision["governor_verdict"] = verdict
+            except Exception as _ex_gov:
+                log.debug(f"Safety governor error: {_ex_gov}")
+        # Contradiction Engine: check if this entity's pillar mix shows
+        # majority-safe contradicted by a structurally reliable pillar.
+        if result["distinct_pillars"] >= 2:
+            try:
+                from contradiction_engine import detect_contradiction
+            except ImportError:
+                import sys as _sys_con
+                _sys_con.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+                from contradiction_engine import detect_contradiction
+            try:
+                beliefs = {c["pillar"]: max(0, 100 - c["current_weight"]) for c in result.get("contributions", [])}
+                contradiction = detect_contradiction(beliefs)
+                if contradiction.get("contradiction_detected") and contradiction.get("severity") == "critical":
+                    log.warning(f"[Contradiction] CRITICAL contradiction for pid:{pid}: {contradiction['conclusion']}")
+            except Exception as _ex_con:
+                log.debug(f"Contradiction engine error: {_ex_con}")
         # Threat Mesh: a real tier-2+ decision is confirmed-enough
         # evidence to broadcast to every other connected deployment --
         # this is the actual moment collective immunity kicks in.
