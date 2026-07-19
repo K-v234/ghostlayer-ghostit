@@ -16,6 +16,7 @@ ENV MESH_DB_PATH=/data/threat_mesh.duckdb
 ENV GHOSTIT_DEPLOYMENT_ID=keerthivahanan-cloud-mumbai
 ENV WORLDMODEL_DB_PATH=/data/world_model.duckdb
 ENV REPLAY_DB_PATH=/data/attack_replay.duckdb
+ENV EVOLUTION_DB_PATH=/data/self_evolution.duckdb
 
 CMD ["python3", "deception/canary/server.py", \
      "--http-port", "8080", \

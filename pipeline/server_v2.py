@@ -872,6 +872,83 @@ def replay_what_if(incident_id: str, sequence_num: int):
         _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
         from attack_replay import AttackReplay
     return JSONResponse(AttackReplay().what_if_acted_earlier(incident_id, sequence_num))
+@app.post("/contradiction/check")
+def contradiction_check(pillar_beliefs: str):
+    import sys as _sys, json as _json
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from contradiction_engine import detect_contradiction
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from contradiction_engine import detect_contradiction
+    beliefs = _json.loads(pillar_beliefs)
+    return JSONResponse(detect_contradiction(beliefs))
+@app.post("/intent/infer")
+def intent_infer(observed_stages: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from intent_engine import infer_intent
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from intent_engine import infer_intent
+    stages = set(s.strip() for s in observed_stages.split(","))
+    return JSONResponse(infer_intent(stages))
+@app.get("/curiosity/evaluate")
+def curiosity_evaluate(entity_id: str, comm: str, cortex_score: float, distinct_pillars: int = Query(1)):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from curiosity_engine import should_investigate, build_investigation_plan
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from curiosity_engine import should_investigate, build_investigation_plan
+    if should_investigate(cortex_score, distinct_pillars):
+        return JSONResponse(build_investigation_plan(entity_id, comm, cortex_score))
+    return {"investigation_triggered": False}
+@app.post("/simulation/check-trajectory")
+def simulation_check(predicted: str, observed: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from simulation_engine import check_trajectory_match
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from simulation_engine import check_trajectory_match
+    pred_list = [s.strip() for s in predicted.split(",")]
+    obs_list = [s.strip() for s in observed.split(",")]
+    return JSONResponse(check_trajectory_match(pred_list, obs_list))
+@app.post("/evolution/record-outcome")
+def evolution_record(pillar: str, outcome: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    SelfEvolvingArchitecture().record_outcome(pillar, outcome)
+    return {"status": "recorded"}
+@app.post("/evolution/generate-recommendation")
+def evolution_recommend(pillar: str, current_weight: float):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    return JSONResponse(SelfEvolvingArchitecture().generate_recommendation(pillar, current_weight))
+@app.post("/evolution/approve/{recommendation_id}")
+def evolution_approve(recommendation_id: str, reviewed_by: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from self_evolving_architecture import SelfEvolvingArchitecture
+    return JSONResponse(SelfEvolvingArchitecture().approve_recommendation(recommendation_id, reviewed_by))
 @app.get("/path-router/classify")
 def path_router_classify(event_type: str = Query(""), rule_id: str = Query(""), score: float = Query(0)):
     import sys as _sys
