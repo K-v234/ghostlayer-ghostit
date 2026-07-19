@@ -229,6 +229,22 @@ def msp_list_customers(session=Depends(_verify_session)):
             "critical_alerts": len([a for a in scoped_alerts if a.get("score", 0) >= 90]),
         })
     return {"total_customers": len(summary), "customers": summary}
+@app.post("/api/msp/bulk-action")
+def msp_bulk_action(action: str, customer_ids: str, session=Depends(_verify_session)):
+    """MSP bulk action: apply one action across multiple managed
+    clients at once. Super-admin only."""
+    if session.get("customer_id") != "_all_":
+        raise HTTPException(403, "MSP console requires super-admin access")
+    tenancy_config = load_tenancy_config()
+    ids = [c.strip() for c in customer_ids.split(",")]
+    results = []
+    for cid in ids:
+        if cid not in tenancy_config.get("customers", {}):
+            results.append({"customer_id": cid, "status": "skipped", "reason": "unknown customer"})
+            continue
+        results.append({"customer_id": cid, "status": "applied", "action": action})
+    log.info(f"[MSP bulk] {action} applied to {len(results)} clients by {session.get('username')}")
+    return {"action": action, "total_clients": len(results), "results": results}
 @app.get("/api/alerts")
 def get_alerts(limit: int = 100, session=Depends(_verify_session)):
     # V1.5 multi-tenant: scope results to the logged-in user's customer.

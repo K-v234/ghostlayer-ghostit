@@ -543,10 +543,19 @@ def identity_risk(username: str, login_hour: int, is_new_device: bool = Query(Fa
     _sys.path.insert(0, "/app/causal-engine")
     try:
         from identity_correlation import score_login_anomaly
+        from cortex import Cortex, CortexContribution
     except ImportError:
         _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
         from identity_correlation import score_login_anomaly
-    return JSONResponse(score_login_anomaly(username, login_hour, is_new_device, mfa_used))
+        from cortex import Cortex, CortexContribution
+    result = score_login_anomaly(username, login_hour, is_new_device, mfa_used)
+    if result["identity_risk_score"] > 0:
+        try:
+            Cortex().contribute(CortexContribution(
+                f"user:{username}", "identity_risk", "; ".join(result["reasons"])))
+        except Exception as _ex:
+            log.debug(f"Identity Cortex feed error: {_ex}")
+    return JSONResponse(result)
 @app.post("/rollback")
 def rollback(affected_paths: str):
     import sys as _sys
