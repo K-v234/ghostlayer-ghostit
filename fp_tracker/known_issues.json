@@ -331,5 +331,23 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-18"
+  },
+  {
+    "id": "MSP-CONSOLE-IDENTITY-ROLLBACK-COMPLETE-01",
+    "component": "Dashboard",
+    "title": "All 3 previously-deferred items complete: Identity Risk panel, Rollback surfaced in-incident, MSP Console real first version",
+    "detail": "Closes all remaining items from the last upgrade round. IdentityRiskPanel: real login-event trigger form on Business tab. RollbackAction: correctly surfaced within alerts detail view for ransomware alerts. MSP Multi-Client Console: real first version -- GET /api/msp/customers lists every managed client with live alert counts; new MSP Console dashboard tab. Bulk policy push and aggregated billing remain future work. All verified with successful builds and live cloud deployment.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-18"
+  },
+  {
+    "id": "WORLDMODEL-GOVERNOR-REPLAY-ROUTER-VERIFIED-01",
+    "component": "Architecture",
+    "title": "4 new architectural systems built, wired, and verified live on production infrastructure",
+    "detail": "Built following external architectural recommendations, evaluated honestly rather than accepted wholesale: World-Model (live criticality/blast-radius computation), Safety Governor (final business-risk check before real action), Attack Replay (immutable hash-chained incident timeline with what-if simulation), Path Router (hot/warm/cold event classification). A 5th recommendation (immune mesh) correctly identified as already-existing architecture. All verified live: real World-Model + Governor correctly assessed postgres criticality and approved action; real Attack Replay entry recorded with verified hash integrity; real Path Router correctly classified a canary hit as hot-tier.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-19"
   }
 ]
