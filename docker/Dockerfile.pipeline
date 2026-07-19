@@ -14,6 +14,8 @@ ENV GHOSTIT_AUTONOMOUS_ACTIONS_ENABLED=false
 ENV GHOSTIT_SHADOW_DIR=/data/shadow_copies
 ENV MESH_DB_PATH=/data/threat_mesh.duckdb
 ENV GHOSTIT_DEPLOYMENT_ID=keerthivahanan-cloud-mumbai
+ENV WORLDMODEL_DB_PATH=/data/world_model.duckdb
+ENV REPLAY_DB_PATH=/data/attack_replay.duckdb
 RUN pip install --no-cache-dir \
     fastapi uvicorn duckdb \
     numpy pandas pyarrow pytz

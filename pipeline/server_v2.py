@@ -806,6 +806,82 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
     except Exception as _ex2:
         log.debug(f"Active deception injection error: {_ex2}")
     return JSONResponse(result)
+@app.post("/worldmodel/observe")
+def worldmodel_observe(entity_id: str, host: str, comm: str, parent_id: str = Query(None), event_type: str = Query("")):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from world_model import WorldModel
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from world_model import WorldModel
+    WorldModel().observe(entity_id, host, comm, parent_id, event_type)
+    return {"status": "observed"}
+@app.get("/worldmodel/blast-radius/{entity_id}")
+def worldmodel_blast_radius(entity_id: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from world_model import WorldModel
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from world_model import WorldModel
+    return JSONResponse(WorldModel().what_breaks_if_isolated(entity_id))
+@app.post("/governor/evaluate")
+def governor_evaluate(proposed_tier: int, proposed_action: str, entity_id: str, false_positive_history_count: int = Query(0)):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from world_model import WorldModel
+        from safety_governor import govern
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from world_model import WorldModel
+        from safety_governor import govern
+    assessment = WorldModel().what_breaks_if_isolated(entity_id)
+    verdict = govern(proposed_tier, proposed_action, assessment, false_positive_history_count)
+    return JSONResponse({**verdict, "world_model_assessment": assessment})
+@app.post("/replay/record")
+def replay_record(incident_id: str, entity_id: str, event_type: str, description: str, pillar: str = Query("")):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from attack_replay import AttackReplay
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from attack_replay import AttackReplay
+    return JSONResponse(AttackReplay().record(incident_id, entity_id, event_type, description, pillar))
+@app.get("/replay/{incident_id}")
+def replay_get(incident_id: str):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from attack_replay import AttackReplay
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from attack_replay import AttackReplay
+    ar = AttackReplay()
+    return JSONResponse({"timeline": ar.get_timeline(incident_id), "integrity": ar.verify_integrity(incident_id)})
+@app.get("/replay/{incident_id}/what-if/{sequence_num}")
+def replay_what_if(incident_id: str, sequence_num: int):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from attack_replay import AttackReplay
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from attack_replay import AttackReplay
+    return JSONResponse(AttackReplay().what_if_acted_earlier(incident_id, sequence_num))
+@app.get("/path-router/classify")
+def path_router_classify(event_type: str = Query(""), rule_id: str = Query(""), score: float = Query(0)):
+    import sys as _sys
+    _sys.path.insert(0, "/app/causal-engine")
+    try:
+        from path_router import classify_event
+    except ImportError:
+        _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from path_router import classify_event
+    return {"tier": classify_event(event_type, rule_id, score)}
 @app.get("/cortex/{pid}")
 def get_cortex_score(pid: int):
     """
