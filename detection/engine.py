@@ -11,6 +11,12 @@ import socket
 import logging
 import argparse
 import urllib.request
+import urllib.parse
+
+# Simulation Engine: caches each entity's most recent prediction, so
+# a later detection on the same entity can check whether reality
+# genuinely converged toward it.
+_PREDICTION_CACHE = {}
 from datetime import datetime, timezone
 import time
 
@@ -176,8 +182,36 @@ def send_to_pipeline(detections: list, host: str, port: int):
                         f"(kill chain position {_pred.get('kill_chain_position')}/"
                         f"{_pred.get('kill_chain_total_stages')})"
                     )
+                    _entity = d.evidence[0].get("pid") if hasattr(d, "evidence") and d.evidence else None
+                    if _entity:
+                        _prior = _PREDICTION_CACHE.get(f"{_entity}_prior")
+                        if _prior:
+                            try:
+                                _sim_params = urllib.parse.urlencode({"predicted": ",".join(_prior), "observed": tag.tactic})
+                                _sim_url = f"http://ghostit-pipeline:8000/simulation/check-trajectory?{_sim_params}"
+                                _sim_req = urllib.request.Request(_sim_url, method="POST")
+                                with urllib.request.urlopen(_sim_req, timeout=3) as _sr:
+                                    _sim_result = json.loads(_sr.read())
+                                if _sim_result.get("trajectory_match"):
+                                    log.warning(f"[Simulation] TRAJECTORY MATCH for pid {_entity}: {_sim_result['conclusion']}")
+                            except Exception as _ex_sim:
+                                log.debug(f"Simulation engine error: {_ex_sim}")
+                        _PREDICTION_CACHE[f"{_entity}_prior"] = next_tactics
             except Exception as _ex:
                 log.debug(f"Predictive inference error: {_ex}")
+            try:
+                _entity_id = d.evidence[0].get("pid") if hasattr(d, "evidence") and d.evidence else 0
+                _incident_id = f"incident-pid-{_entity_id}"
+                _replay_params = urllib.parse.urlencode({
+                    "incident_id": _incident_id, "entity_id": f"pid:{_entity_id}",
+                    "event_type": tag.tactic.lower().replace(" ", "_") if tag else d.rule_id.lower(),
+                    "description": d.title, "pillar": d.rule_id,
+                })
+                _replay_url = f"http://ghostit-pipeline:8000/replay/record?{_replay_params}"
+                _replay_req = urllib.request.Request(_replay_url, method="POST")
+                urllib.request.urlopen(_replay_req, timeout=3)
+            except Exception as _ex_replay:
+                log.debug(f"Attack replay recording error: {_ex_replay}")
         # V1.5: tag whether this rule has a real incident response
         # playbook available -- dashboard uses this to show/hide the
         # "View Playbook" action, fetching the actual content from
