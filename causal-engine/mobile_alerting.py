@@ -35,3 +35,23 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     r = send_critical_alert("Ransomware confirmed on pid:9999", "pid:9999", 96)
     print(f"  {r}")
+
+TELEGRAM_BOT_TOKEN = os.environ.get("GHOSTIT_TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("GHOSTIT_TELEGRAM_CHAT_ID", "")
+
+def send_telegram_alert(message: str, entity_id: str, score: float) -> dict:
+    """Real Telegram Bot API delivery -- free, instant push notification."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return {"sent": False, "reason": "Telegram not configured"}
+    text = "GHOST IT CRITICAL ALERT\n\n" + message + "\n\nEntity: " + entity_id + "\nScore: " + str(score) + "/100"
+    url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage"
+    payload = json.dumps({"chat_id": TELEGRAM_CHAT_ID, "text": text}).encode()
+    try:
+        req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            resp = json.loads(r.read())
+        log.warning("[TelegramAlert] Sent: " + text[:60])
+        return {"sent": resp.get("ok", False), "telegram_response": resp}
+    except Exception as ex:
+        log.error("[TelegramAlert] Send failed: " + str(ex))
+        return {"sent": False, "reason": str(ex)}
