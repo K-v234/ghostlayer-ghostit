@@ -913,7 +913,24 @@ def replay_record(incident_id: str, entity_id: str, event_type: str, description
     except ImportError:
         _sys.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
         from attack_replay import AttackReplay
-    return JSONResponse(AttackReplay().record(incident_id, entity_id, event_type, description, pillar))
+    ar = AttackReplay()
+    result = ar.record(incident_id, entity_id, event_type, description, pillar)
+    try:
+        from intent_engine import infer_intent
+    except ImportError:
+        import sys as _sys_int
+        _sys_int.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+        from intent_engine import infer_intent
+    try:
+        timeline = ar.get_timeline(incident_id)
+        observed_stages = {e["event_type"] for e in timeline}
+        intent_result = infer_intent(observed_stages)
+        if intent_result.get("intent_inferred"):
+            log.warning(f"[Intent] {incident_id}: inferred intent {intent_result['top_intent']['intent']} ({intent_result['top_intent']['confidence']}% confidence)")
+            result["inferred_intent"] = intent_result["top_intent"]
+    except Exception as _ex_int:
+        log.debug(f"Intent engine error: {_ex_int}")
+    return JSONResponse(result)
 @app.get("/replay/{incident_id}")
 def replay_get(incident_id: str):
     import sys as _sys
