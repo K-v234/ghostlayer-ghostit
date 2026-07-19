@@ -355,6 +355,7 @@ def hot_to_result(events):
             "agent": e.get("agent", "linux-c1"),
             "integrity": e.get("integrity"),
             "source_ip": e.get("source_ip"),
+            "_tier": e.get("_tier"),
         })
     return result
 
