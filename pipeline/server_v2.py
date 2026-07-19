@@ -265,6 +265,22 @@ def insert_batch(events):
     if not events:
         return 0
     enriched = enrich_batch(events)
+    try:
+        import sys as _sys_pr
+        _sys_pr.path.insert(0, "/app/causal-engine")
+        try:
+            from path_router import classify_event
+        except ImportError:
+            _sys_pr.path.insert(0, os.path.expanduser("~/ghostlayer/causal-engine"))
+            from path_router import classify_event
+        for e in enriched:
+            e["_tier"] = classify_event(
+                e.get("type") or e.get("event_type") or "",
+                e.get("comm", "") if str(e.get("comm", "")).startswith(("C1", "C2", "C3", "R0")) else "",
+                e.get("score", 0)
+            )
+    except Exception as _ex_pr:
+        log.debug(f"Path router classification error: {_ex_pr}")
     with HOT_LOCK:
         HOT_BUFFER.extend(enriched)
     # Per-host buffers — separate ring per sensor (CrowdStrike pattern)
