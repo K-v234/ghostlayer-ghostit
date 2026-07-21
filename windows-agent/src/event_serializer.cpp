@@ -1,8 +1,22 @@
 #include "event_serializer.h"
 #include <nlohmann/json.hpp>
 #include <cstring>
+#include <windows.h>
 
 using json = nlohmann::json;
+
+static std::string get_machine_hostname() {
+    static std::string cached;
+    if (!cached.empty()) return cached;
+    char buf[256] = {0};
+    DWORD size = sizeof(buf);
+    if (GetComputerNameA(buf, &size)) {
+        cached = std::string(buf, size);
+    } else {
+        cached = "unknown-host";
+    }
+    return cached;
+}
 
 // Convert dst_ip uint32 to dotted-decimal string
 static std::string ip_to_str(uint32_t ip) {
@@ -62,6 +76,7 @@ std::string serialize_event(const ghost_event_t& evt) {
     std::string path_str(evt.path, strnlen(evt.path, sizeof(evt.path)));
     j["path"]       = path_str;
     j["agent"]      = "windows-c9";
+    j["machine_id"]  = get_machine_hostname();
     if (evt.dst_ip != 0)   j["daddr"]    = ip_to_str(evt.dst_ip);
     if (evt.dst_port != 0) j["dport"]    = evt.dst_port;
     if (evt.src_port != 0) j["sport"]    = evt.src_port;

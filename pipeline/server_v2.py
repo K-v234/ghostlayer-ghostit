@@ -356,6 +356,7 @@ def hot_to_result(events):
             "integrity": e.get("integrity"),
             "source_ip": e.get("source_ip"),
             "_tier": e.get("_tier"),
+            "machine_id": e.get("machine_id"),
         })
     return result
 
