@@ -349,5 +349,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-19"
+  },
+  {
+    "id": "NINE-SYSTEMS-AUTO-WIRED-VERIFIED-01",
+    "component": "Architecture",
+    "title": "All 9 systems from World-Model through Path Router genuinely auto-wired and verified with real production evidence",
+    "detail": "Completes deep wiring for World-Model, Safety Governor, Curiosity Engine, Contradiction Engine, Intent Engine, Simulation Engine, Attack Replay, and Path Router -- confirmed each genuinely fires automatically from real detection/ingestion flow (Self-Evolving Architecture correctly remains manual-only by design). Found and fixed a real bug during verification: hot_to_result()'s field-whitelisting serializer silently stripped Path Router's new _tier field from API responses. Fixed by adding it to the whitelist. Final verification: real canary_hit event correctly classified as hot-tier via live production query.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-19"
   }
 ]
