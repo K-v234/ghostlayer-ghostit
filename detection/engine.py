@@ -104,6 +104,7 @@ def _check_and_observe_dna(comm: str, parent_comm: str, event_type: str, path: s
     high-confidence signal (identity mismatch is genuinely strong
     evidence, independent of anything else).
     """
+    path = path or ""
     try:
         import urllib.parse
         obs_params = urllib.parse.urlencode({
