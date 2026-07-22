@@ -195,7 +195,30 @@ class FileEntropyMonitor:
             target=self._loop, daemon=True, name="C15-EntropyMonitor"
         )
         self._thread.start()
+        self._rescan_thread = threading.Thread(
+            target=self._periodic_rescan, daemon=True, name="C15-RescanWatcher"
+        )
+        self._rescan_thread.start()
         log.info(f"C15 FileEntropyMonitor started — watching {len(self._watches)} dirs")
+    def _periodic_rescan(self, interval_sec: int = 30):
+        """Re-scan /tmp and /var/tmp for genuinely new subdirectories
+        every interval_sec, adding a real inotify watch for each one
+        not already covered."""
+        while self._running:
+            time.sleep(interval_sec)
+            try:
+                for base in ["/tmp", "/var/tmp"]:
+                    try:
+                        watched_paths = set(self._watches.values())
+                        for sub in os.listdir(base):
+                            subpath = os.path.join(base, sub)
+                            if os.path.isdir(subpath) and subpath not in watched_paths:
+                                self._add_watch(subpath)
+                                log.info(f"C15 rescan: added new watch dir {subpath}")
+                    except PermissionError:
+                        pass
+            except Exception as ex:
+                log.error(f"C15 rescan error: {ex}")
 
     def stop(self):
         self._running = False
