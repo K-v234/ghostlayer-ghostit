@@ -117,6 +117,11 @@ pub struct GhostEvent {
 
 impl GhostEvent {
     fn from_raw(raw: &RawGhostEvent) -> Option<Self> {
+        static SELF_PID: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        let self_pid = *SELF_PID.get_or_init(|| std::process::id());
+        if raw.pid == self_pid {
+            return None;
+        }
         let comm = std::str::from_utf8(&raw.comm)
             .unwrap_or("").trim_end_matches('\0').to_string();
         let et = EventType::from_u8(raw.event_type);
