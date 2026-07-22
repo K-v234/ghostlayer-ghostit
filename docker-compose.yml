@@ -9,6 +9,7 @@ services:
     ports:
       - "8000:8000"
       - "9000:9000"
+      - "9001:9001"
     volumes:
       - ghostit-data:/data
     restart: unless-stopped
