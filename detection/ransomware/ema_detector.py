@@ -224,7 +224,7 @@ class RansomwareEMADetector:
             ext = self._get_ext(path)
             if ext in self.SENSITIVE_EXTENSIONS:
                 self._file_writes += 1
-        elif event_type == "file_write":
+        elif event_type in ("file_write", "write"):
             self._file_writes += 1
             ext = self._get_ext(path)
             if ext:
