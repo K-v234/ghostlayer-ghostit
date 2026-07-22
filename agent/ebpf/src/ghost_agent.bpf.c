@@ -82,7 +82,7 @@ struct {
  */
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, 16384);
     __type(key,   __u64);
     __type(value, char[64]);
 } fd_path_cache SEC(".maps");
@@ -419,16 +419,6 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
         path[4]=='/' && path[5]=='s' && path[6]=='h' && path[7]=='m')
         priority = PRIORITY_CRITICAL;
 
-    struct ghost_event *e = RESERVE(priority);
-    if (!e) return 0;
-    fill_common(e, EVENT_OPEN, priority);
-    bpf_probe_read_user_str(e->path, sizeof(e->path),
-                            (const void *)(long)ctx->args[1]);
-    e->flags = (__u16)ctx->args[2];
-    bpf_ringbuf_submit(e, 0);
-    /* Stage path keyed by PID so sys_exit_openat can combine it with
-     * the real fd (only known at exit, not entry) -- see
-     * fd_path_cache comment near the map declarations. */
     {
         char staged_path[64] = {};
         bpf_probe_read_user_str(staged_path, sizeof(staged_path),
@@ -436,6 +426,13 @@ int handle_openat(struct trace_event_raw_sys_enter *ctx)
         __u32 pid = bpf_get_current_pid_tgid() >> 32;
         bpf_map_update_elem(&openat_staging, &pid, staged_path, BPF_ANY);
     }
+    struct ghost_event *e = RESERVE(priority);
+    if (!e) return 0;
+    fill_common(e, EVENT_OPEN, priority);
+    bpf_probe_read_user_str(e->path, sizeof(e->path),
+                            (const void *)(long)ctx->args[1]);
+    e->flags = (__u16)ctx->args[2];
+    bpf_ringbuf_submit(e, 0);
     return 0;
 }
 
