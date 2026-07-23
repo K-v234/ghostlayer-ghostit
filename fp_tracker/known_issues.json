@@ -358,5 +358,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-19"
+  },
+  {
+    "id": "RANSOMWARE-DETECTION-FULLY-VERIFIED-END-TO-END-01",
+    "component": "eBPF Agent / C15",
+    "title": "TRUE root cause of ransomware detection never firing found and fixed: missing renameat2 probe",
+    "detail": "Final root cause: the ransomware test pattern writes a file then renames it (mv file.docx file.docx.locked) via renameat2(), not legacy rename() -- the eBPF agent had zero probe for renameat2. Also fixed: existing rename() handler captured the OLD filename instead of the NEW one. Verified end-to-end: bpftool confirmed program firing (run_cnt=1), Rust tracing confirmed correct new-filename parsing, and a genuine real alert was captured: score=96, alert=true, reasons=[ransomware_extension]. This closes the entire investigation chain from earlier the same day (heartbeat, self-noise, event-type mismatch, Durable Outbox, and now the true final piece).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-23"
   }
 ]
