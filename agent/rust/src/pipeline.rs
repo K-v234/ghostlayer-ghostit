@@ -8,6 +8,42 @@ use tokio::time::{interval, Duration};
 use tracing::{info, warn, error, debug};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::path::PathBuf;
+use tokio::fs::{OpenOptions, File};
+use tokio::io::AsyncReadExt;
+
+struct DurableOutbox {
+    path: PathBuf,
+}
+impl DurableOutbox {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+    async fn append(&self, payload: &str) -> Result<()> {
+        let mut f = OpenOptions::new()
+            .create(true).append(true).open(&self.path).await?;
+        f.write_all(payload.as_bytes()).await?;
+        Ok(())
+    }
+    async fn read_all(&self) -> Result<String> {
+        if !self.path.exists() {
+            return Ok(String::new());
+        }
+        let mut f = File::open(&self.path).await?;
+        let mut buf = String::new();
+        f.read_to_string(&mut buf).await?;
+        Ok(buf)
+    }
+    async fn clear(&self) -> Result<()> {
+        if self.path.exists() {
+            tokio::fs::remove_file(&self.path).await?;
+        }
+        Ok(())
+    }
+    fn pending_bytes(&self) -> u64 {
+        std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0)
+    }
+}
 
 pub struct PipelineForwarder {
     host:             String,
@@ -16,6 +52,7 @@ pub struct PipelineForwarder {
     flush_interval_ms: u64,
     batch:            Arc<Mutex<Vec<Value>>>,
     stream:           Arc<Mutex<Option<TcpStream>>>,
+    outbox:           Arc<DurableOutbox>,
 }
 
 impl PipelineForwarder {
@@ -25,6 +62,9 @@ impl PipelineForwarder {
         batch_size: usize,
         flush_interval_ms: u64,
     ) -> Result<Self> {
+        let outbox_path = std::env::var("GHOST_OUTBOX_PATH")
+            .unwrap_or_else(|_| "/var/lib/ghostit/outbox.jsonl".to_string());
+        let outbox = Arc::new(DurableOutbox::new(PathBuf::from(outbox_path)));
         let forwarder = Self {
             host:             host.to_string(),
             port,
@@ -32,9 +72,14 @@ impl PipelineForwarder {
             flush_interval_ms,
             batch:            Arc::new(Mutex::new(Vec::new())),
             stream:           Arc::new(Mutex::new(None)),
+            outbox,
         };
 
         forwarder.connect().await;
+        let pending = forwarder.outbox.pending_bytes();
+        if pending > 0 {
+            warn!(bytes = pending, "Durable outbox has pending undelivered data from a previous session -- will retry on next flush");
+        }
         forwarder.start_timer();
         Ok(forwarder)
     }
@@ -57,37 +102,58 @@ impl PipelineForwarder {
         let host   = self.host.clone();
         let port   = self.port;
         let ms     = self.flush_interval_ms;
+        let outbox = Arc::clone(&self.outbox);
 
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_millis(ms));
             loop {
                 ticker.tick().await;
-                let mut b = batch.lock().await;
-                if b.is_empty() {
-                    continue;
+
+                {
+                    let mut b = batch.lock().await;
+                    if !b.is_empty() {
+                        let payload = format!("{}\n", serde_json::to_string(&*b).unwrap_or_default());
+                        b.clear();
+                        drop(b);
+                        if let Err(e) = outbox.append(&payload).await {
+                            error!(error = %e, "Failed to write to durable outbox -- this batch may be lost");
+                        }
+                    }
                 }
-                let payload = format!("{}\n", serde_json::to_string(&*b).unwrap_or_default());
-                b.clear();
-                drop(b);
+
+                let pending = match outbox.read_all().await {
+                    Ok(p) if !p.is_empty() => p,
+                    _ => continue,
+                };
 
                 let mut s = stream.lock().await;
-                if let Some(ref mut conn) = *s {
-                    if let Err(e) = conn.write_all(payload.as_bytes()).await {
-                        warn!(error = %e, "Pipeline write failed — reconnecting");
-                        *s = None;
-                        // Reconnect on next event
+                let send_ok = if let Some(ref mut conn) = *s {
+                    match conn.write_all(pending.as_bytes()).await {
+                        Ok(()) => true,
+                        Err(e) => {
+                            warn!(error = %e, "Pipeline write failed — reconnecting, data remains safely queued in durable outbox");
+                            *s = None;
+                            false
+                        }
                     }
                 } else {
-                    // Try reconnect
                     match TcpStream::connect(format!("{}:{}", host, port)).await {
-                        Ok(conn) => {
+                        Ok(mut conn) => {
                             info!("Pipeline reconnected");
+                            let ok = conn.write_all(pending.as_bytes()).await.is_ok();
                             *s = Some(conn);
+                            ok
                         }
                         Err(_) => {
-                            // Print to stdout as fallback
-                            print!("{}", payload);
+                            false
                         }
+                    }
+                };
+                drop(s);
+
+                if send_ok {
+                    if let Err(e) = outbox.clear().await {
+                        error!(error = %e, "Failed to clear durable outbox after successful send");
                     }
                 }
             }
@@ -119,16 +185,32 @@ impl PipelineForwarder {
     }
 
     async fn send_payload(&self, payload: &str) {
+        if let Err(e) = self.outbox.append(payload).await {
+            error!(error = %e, "Failed to write to durable outbox in send_payload -- this batch may be lost");
+        }
+        let pending = match self.outbox.read_all().await {
+            Ok(p) if !p.is_empty() => p,
+            _ => return,
+        };
         let mut s = self.stream.lock().await;
-        if let Some(ref mut conn) = *s {
-            if let Err(e) = conn.write_all(payload.as_bytes()).await {
-                error!(error = %e, "Send failed");
-                *s = None;
-            } else {
-                debug!(bytes = payload.len(), "Flushed");
+        let send_ok = if let Some(ref mut conn) = *s {
+            match conn.write_all(pending.as_bytes()).await {
+                Ok(()) => true,
+                Err(e) => {
+                    error!(error = %e, "Send failed — data remains safely queued in durable outbox");
+                    *s = None;
+                    false
+                }
             }
         } else {
-            print!("{}", payload);
+            false
+        };
+        drop(s);
+        if send_ok {
+            debug!(bytes = pending.len(), "Flushed via durable outbox");
+            if let Err(e) = self.outbox.clear().await {
+                error!(error = %e, "Failed to clear durable outbox after successful send");
+            }
         }
     }
 }
