@@ -490,7 +490,31 @@ int handle_rename(struct trace_event_raw_sys_enter *ctx)
 
     fill_common(e, EVENT_RENAME, PRIORITY_STANDARD);
     bpf_probe_read_user_str(e->path, sizeof(e->path),
-                            (const void *)(long)ctx->args[0]);
+                            (const void *)(long)ctx->args[1]);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+SEC("tp/syscalls/sys_enter_renameat2")
+int handle_renameat2(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_RENAME, PRIORITY_STANDARD);
+    bpf_probe_read_user_str(e->path, sizeof(e->path),
+                            (const void *)(long)ctx->args[3]);
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+SEC("tp/syscalls/sys_enter_renameat")
+int handle_renameat(struct trace_event_raw_sys_enter *ctx)
+{
+    if (should_drop()) return 0;
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+    if (!e) return 0;
+    fill_common(e, EVENT_RENAME, PRIORITY_STANDARD);
+    bpf_probe_read_user_str(e->path, sizeof(e->path),
+                            (const void *)(long)ctx->args[3]);
     bpf_ringbuf_submit(e, 0);
     return 0;
 }
