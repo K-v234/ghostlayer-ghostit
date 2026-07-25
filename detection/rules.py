@@ -157,6 +157,36 @@ def check_event(event: dict) -> Optional[Detection]:
             evidence    = [event],
         )
 
+    CREDENTIAL_FILE_PATTERNS = (
+        "/etc/shadow", "/etc/gshadow", ".env", "id_rsa", "id_ed25519",
+        "id_ecdsa", "id_dsa", ".pem", ".ppk", "credentials.json",
+        "passwords.txt", "password.txt", ".npmrc", ".pgpass",
+        ".netrc", "wallet.dat", "secrets.yml", "secrets.yaml",
+    )
+    BROWSER_CRED_PATH_MARKERS = (
+        "/.mozilla/", "/.config/google-chrome/", "/.config/chromium/",
+    )
+    if type_ in ("open", "lsm_open", "read") and file_:
+        file_lower = file_.lower()
+        is_direct_credential_file = any(
+            p in file_lower for p in CREDENTIAL_FILE_PATTERNS
+        )
+        is_browser_credential_path = any(
+            m in file_ for m in BROWSER_CRED_PATH_MARKERS
+        ) and any(k in file_lower for k in ("login", "password", "cookie"))
+        if is_direct_credential_file or is_browser_credential_path:
+            TRUSTED_CRED_READERS = ("sshd", "ssh", "gnome-keyring-daemon",
+                                      "firefox", "chrome", "systemd")
+            trusted = comm in TRUSTED_CRED_READERS
+            return Detection(
+                rule_id     = "R015",
+                severity    = "medium" if trusted else "high",
+                title       = "Credential File Access",
+                description = f"{comm} accessed {file_} — genuine credential-pattern file, " + ("expected reader" if trusted else "unexpected/untrusted reader"),
+                confidence  = 60 if trusted else 90,
+                evidence    = [event],
+            )
+
     return None
 
 
