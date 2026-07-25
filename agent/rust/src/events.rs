@@ -228,6 +228,7 @@ pub async fn run_event_loop(
                     if data.len() >= RAW_EVENT_SIZE {
                         let raw = unsafe { &*(data.as_ptr() as *const RawGhostEvent) };
                         if let Some(event) = GhostEvent::from_raw(raw) {
+
                             if let Ok(json) = serde_json::to_value(&event) {
                                 let _ = t.try_send(json);
                             }

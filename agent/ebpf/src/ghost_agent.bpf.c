@@ -651,13 +651,20 @@ int handle_read(struct trace_event_raw_sys_enter *ctx)
 {
     if (should_drop_noisy()) return 0;
 
-    /* Only track reads on interesting fds — skip fd 0,1,2 */
     int fd = (int)ctx->args[0];
     if (fd <= 2) return 0;
 
     struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
     if (!e) return 0;
     fill_common(e, EVENT_READ, PRIORITY_STANDARD);
+    {
+        __u32 pid = bpf_get_current_pid_tgid() >> 32;
+        __u64 fd_key = ((__u64)pid << 32) | (__u32)fd;
+        char *cached_path = bpf_map_lookup_elem(&fd_path_cache, &fd_key);
+        if (cached_path) {
+            bpf_probe_read_kernel_str(e->path, sizeof(e->path), cached_path);
+        }
+    }
     e->flags = (__u16)fd;
     bpf_ringbuf_submit(e, 0);
     return 0;
