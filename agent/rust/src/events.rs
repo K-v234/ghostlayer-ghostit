@@ -146,6 +146,15 @@ impl GhostEvent {
             }
         };
 
+        let path = if path.is_none() && matches!(et, EventType::Read | EventType::Write) {
+            let fd = raw.flags;
+            let real_pid = raw.pid;
+            std::fs::read_link(format!("/proc/{}/fd/{}", real_pid, fd))
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+        } else {
+            path
+        };
         Some(GhostEvent {
             ts: raw.timestamp_ns, pid: raw.pid, ppid: raw.parent_pid,
             uid: raw.uid, gid: raw.gid, comm,
