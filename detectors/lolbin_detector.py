@@ -53,6 +53,17 @@ SUSPICIOUS_CHAINS = [
     ("explorer.exe","powershell.exe",  "Explorer spawning PowerShell", "T1059.001", "HIGH"),
     ("svchost.exe", "powershell.exe",  "Svchost spawning PowerShell",  "T1055",     "CRITICAL"),
     ("lsass.exe",   "cmd.exe",         "LSASS spawning CMD",           "T1003.001", "CRITICAL"),
+    ("apache2",     "bash",           "Apache spawning shell (webshell)",      "T1505.003", "CRITICAL"),
+    ("apache2",     "sh",             "Apache spawning shell (webshell)",      "T1505.003", "CRITICAL"),
+    ("nginx",       "bash",           "Nginx spawning shell (webshell)",       "T1505.003", "CRITICAL"),
+    ("nginx",       "sh",             "Nginx spawning shell (webshell)",       "T1505.003", "CRITICAL"),
+    ("httpd",       "bash",           "Apache (httpd) spawning shell",         "T1505.003", "CRITICAL"),
+    ("php-fpm",     "bash",           "PHP-FPM spawning shell (webshell)",     "T1505.003", "CRITICAL"),
+    ("mysqld",      "bash",           "MySQL spawning shell (SQLi->RCE)",      "T1505.003", "CRITICAL"),
+    ("cron",        "wget",           "Cron spawning wget (persistence/C2)",   "T1053.003", "HIGH"),
+    ("cron",        "curl",           "Cron spawning curl (persistence/C2)",   "T1053.003", "HIGH"),
+    ("vim",         "bash",           "Vim spawning shell (editor breakout)",  "T1548",     "MEDIUM"),
+    ("nano",        "bash",           "Nano spawning shell (editor breakout)", "T1548",     "MEDIUM"),
 ]
 
 class LOLBinDetector:
