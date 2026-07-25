@@ -194,7 +194,9 @@ bool EtwProvider::enable_providers()
         TRACE_LEVEL_VERBOSE, 0x141F, 0, 0, nullptr);
     if (status != ERROR_SUCCESS)
         std::cerr << "[GhostIT ETW] ETW-TI enable failed: " << status
-                  << " (non-fatal on Win10)\n";
+                  << " (expected -- requires Microsoft ELAM/PPL certification, "
+                  << "not obtainable without Microsoft partnership; "
+                  << "falling back to Kernel-Process/Network/File coverage)\n";
 
     status = EnableTraceEx2(
         session_handle_, &GHOST_ETW_KERNEL_PROCESS,
