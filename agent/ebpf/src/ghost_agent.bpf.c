@@ -570,13 +570,12 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
 
     /* Only encode IP:port for AF_INET (2) — skip AF_UNIX */
     if (addr.sin_family == 2) {
-        __u32 ip   = addr.sin_addr.s_addr;
+        __u8 *ip_bytes = (__u8 *)&addr.sin_addr.s_addr;
         __u16 port = __builtin_bswap16(addr.sin_port);
-        /* sin_addr is network byte order (big-endian) — read MSB first */
-        e->path[0] = (ip >> 24) & 0xFF;
-        e->path[1] = (ip >> 16) & 0xFF;
-        e->path[2] = (ip >> 8)  & 0xFF;
-        e->path[3] = ip & 0xFF;
+        e->path[0] = ip_bytes[0];
+        e->path[1] = ip_bytes[1];
+        e->path[2] = ip_bytes[2];
+        e->path[3] = ip_bytes[3];
         e->path[4] = (port >> 8) & 0xFF;
         e->path[5] = port & 0xFF;
     }
