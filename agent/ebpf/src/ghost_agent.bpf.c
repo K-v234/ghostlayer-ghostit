@@ -176,13 +176,16 @@ static __always_inline int should_drop_noisy(void)
 
 static __always_inline int is_noisy_path(const void *upath)
 {
-    char buf[8] = {};
+    char buf[12] = {};
     bpf_probe_read_user_str(buf, sizeof(buf), upath);
 
     if (buf[0]=='/' && buf[1]=='p' && buf[2]=='r' && buf[3]=='o' && buf[4]=='c')
         return 1;
     if (buf[0]=='/' && buf[1]=='s' && buf[2]=='y' && buf[3]=='s')
         return 1;
+    if (buf[0]=='/' && buf[1]=='d' && buf[2]=='e' && buf[3]=='v' &&
+        buf[4]=='/' && buf[5]=='m' && buf[6]=='e' && buf[7]=='m')
+        return 0;
     if (buf[0]=='/' && buf[1]=='d' && buf[2]=='e' && buf[3]=='v' && buf[4]=='/')
         return 1;
     if (buf[0]=='/' && buf[1]=='\0')
