@@ -104,6 +104,22 @@ struct {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
+static __always_inline void resolve_fd_path(int fd, char *out, __u32 out_size)
+{
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (!task) return;
+    struct files_struct *files = BPF_CORE_READ(task, files);
+    if (!files) return;
+    struct fdtable *fdt = BPF_CORE_READ(files, fdt);
+    if (!fdt) return;
+    struct file **fd_array = BPF_CORE_READ(fdt, fd);
+    if (!fd_array) return;
+    struct file *f = NULL;
+    bpf_probe_read_kernel(&f, sizeof(f), &fd_array[fd]);
+    if (!f) return;
+    bpf_d_path(&f->f_path, out, out_size);
+}
+
 static __always_inline void fill_common(
     struct ghost_event *e, __u8 type, __u8 priority)
 {
