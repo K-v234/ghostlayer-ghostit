@@ -358,5 +358,23 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-19"
+  },
+  {
+    "id": "RANSOMWARE-DETECTION-FULLY-VERIFIED-END-TO-END-01",
+    "component": "eBPF Agent / C15",
+    "title": "TRUE root cause of ransomware detection never firing found and fixed: missing renameat2 probe",
+    "detail": "Final root cause: the ransomware test pattern writes a file then renames it (mv file.docx file.docx.locked) via renameat2(), not legacy rename() -- the eBPF agent had zero probe for renameat2. Also fixed: existing rename() handler captured the OLD filename instead of the NEW one. Verified end-to-end: bpftool confirmed program firing (run_cnt=1), Rust tracing confirmed correct new-filename parsing, and a genuine real alert was captured: score=96, alert=true, reasons=[ransomware_extension]. This closes the entire investigation chain from earlier the same day (heartbeat, self-noise, event-type mismatch, Durable Outbox, and now the true final piece).",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-23"
+  },
+  {
+    "id": "CANARY-DECEPTION-ALERTS-NEVER-REACHED-PIPELINE-01",
+    "component": "Deception / Canary Server",
+    "title": "Canary hits were detected correctly but never once reached the pipeline -- missing --pipeline-host argument",
+    "detail": "Discovered while testing Category 6 (Deception Evasion): touching a real monitored canary decoy correctly triggered local detection (confirmed via real CANARY HIT log entries), but zero events ever reached the cloud pipeline. Root cause: the systemd service file only ever passed --pipeline-port 9000, never --pipeline-host -- the AlertForwarder silently used its default of 127.0.0.1 for the entire lifetime of this service's deployment. Fixed by adding --pipeline-host 3.7.6.9. Verified: repeated canary touch produced 3 real canary_hit events correctly delivered and queryable from the production pipeline. This systemd service file is not currently version-controlled -- recommend adding it to the repo.",
+    "severity": "RESOLVED",
+    "owner": "unassigned",
+    "date_found": "2026-07-25"
   }
 ]
