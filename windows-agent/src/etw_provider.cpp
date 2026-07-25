@@ -274,6 +274,7 @@ void EtwProvider::dispatch_event(PEVENT_RECORD record)
 
     const GUID& prov = record->EventHeader.ProviderId;
 
+
     if (IsEqualGUID(prov, GHOST_ETW_TI_PROVIDER))
         parsed = parse_ti_event(record, evt);
     else if (IsEqualGUID(prov, GHOST_ETW_KERNEL_PROCESS)) {
@@ -713,6 +714,7 @@ bool EtwProvider::parse_file_event(PEVENT_RECORD record, ghost_event_t& out)
 {
     USHORT eid = record->EventHeader.EventDescriptor.Id;
     fill_common_fields(record, out);
+
 
 
     ULONGLONG file_key = read_property_ulong64(record, L"FileKey");
