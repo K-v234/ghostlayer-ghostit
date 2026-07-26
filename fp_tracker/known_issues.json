@@ -376,5 +376,14 @@
     "severity": "RESOLVED",
     "owner": "unassigned",
     "date_found": "2026-07-25"
+  },
+  {
+    "id": "FENTRY-BPF-D-PATH-PREEMPT-DYNAMIC-ROOT-CAUSE-01",
+    "component": "eBPF Agent (kernel compatibility)",
+    "title": "fentry/bpf_d_path upgrade: precise root cause found -- PREEMPT_DYNAMIC dev kernel blocks it, real production kernel likely does not",
+    "detail": "Three real, standard sleepable BPF attachment points were tried in sequence: fentry/vfs_read, fentry.s/security_file_permission, and lsm.s/file_permission. All three were rejected by the kernel verifier with an explicit 'not sleepable' message. Root cause: the local dev VM runs a PREEMPT_DYNAMIC kernel (7.0.0-28-generic), which cannot statically guarantee sleep-safety, causing the verifier to conservatively reject these hooks. Checked the real production deployment target (AWS Lightsail cloud server, kernel 6.17.0-1019-aws) -- its version string shows NO PREEMPT_DYNAMIC marker, suggesting a fixed preemption model where this approach may genuinely succeed. Testing requires deploying the real Linux eBPF agent on the cloud server itself -- deliberately deferred as a focused future session. Reverted cleanly each time; no regression to the proven, working 90 percent path-capture rate.",
+    "severity": "OPEN",
+    "owner": "unassigned",
+    "date_found": "2026-07-26"
   }
 ]
