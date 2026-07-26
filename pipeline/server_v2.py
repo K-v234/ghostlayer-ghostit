@@ -14,7 +14,7 @@ from collections import deque, defaultdict, Counter
 from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 import uvicorn, sys
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -1550,6 +1550,42 @@ def main():
     threading.Thread(target=run_heartbeat_server, args=(args.tcp_host, 9001), daemon=True).start()
     log.info(f"Ghost IT Pipeline v2 — HTTP {args.http_host}:{args.http_port}")
     uvicorn.run(app, host=args.http_host, port=args.http_port, log_level="warning")
+
+import hashlib as _hashlib
+
+AGENT_BINARY_PATH = os.environ.get(
+    "GHOST_AGENT_BINARY_PATH",
+    "/home/ubuntu/ghostlayer/agent-releases/ghostit-agent-linux-amd64"
+)
+AGENT_VERSION_FILE = os.environ.get(
+    "GHOST_AGENT_VERSION_FILE",
+    "/home/ubuntu/ghostlayer/agent-releases/VERSION"
+)
+
+@app.get("/agent/version")
+async def agent_version():
+    if not os.path.exists(AGENT_BINARY_PATH):
+        return {"available": False, "reason": "no release published"}
+    with open(AGENT_BINARY_PATH, "rb") as f:
+        real_hash = _hashlib.sha256(f.read()).hexdigest()
+    version = "unknown"
+    if os.path.exists(AGENT_VERSION_FILE):
+        with open(AGENT_VERSION_FILE) as f:
+            version = f.read().strip()
+    return {
+        "available": True,
+        "version": version,
+        "sha256": real_hash,
+        "download_url": "/agent/download",
+        "size_bytes": os.path.getsize(AGENT_BINARY_PATH),
+    }
+
+@app.get("/agent/download")
+async def agent_download():
+    if not os.path.exists(AGENT_BINARY_PATH):
+        return JSONResponse(status_code=404, content={"error": "no release published"})
+    return FileResponse(AGENT_BINARY_PATH, media_type="application/octet-stream",
+                         filename="ghostit-agent-linux-amd64")
 
 if __name__ == "__main__":
     main()
