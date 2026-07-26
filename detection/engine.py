@@ -435,16 +435,20 @@ class DetectionEngine:
                 # C15: Ransomware EMA
                 r = self._ransomware.process_event(e)
                 if r:
+                    r_confidence = min(100, int(r.z_score * 20))
                     detections.append(Detection(
                         rule_id     = f"C15_{r.trigger}",
                         severity    = r.severity.lower() if r.severity != "CRITICAL" else "critical",
                         title       = f"Ransomware EMA: {r.trigger}",
                         description = f"Ransomware behaviour detected — z_score={r.z_score:.1f}",
-                        confidence  = min(100, int(r.z_score * 20)),
+                        confidence  = r_confidence,
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C15_ransomware", f"{r.trigger}:z={r.z_score:.1f}")
                     _feed_temporal_memory(e.get("host","unknown"), e.get("comm","unknown"), e.get("file","") or "unknown", "C15_ransomware", r.trigger)
+                    _observe_threshold("C15_ransomware", r_confidence)
+                else:
+                    _observe_threshold("C15_ransomware", 0)
                 # C14: LOLBin
                 l = self._lolbin.check_event(e)
                 if l:
@@ -457,6 +461,11 @@ class DetectionEngine:
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C14_lolbin", l.technique)
+                    _observe_threshold("C14_lolbin", 85)
+                else:
+                    _observe_threshold("C14_lolbin", 0)
+                if d:
+                    _observe_threshold(f"rule_{d.rule_id}", d.confidence)
                 # C19: LKRG kernel integrity violations
                 if e.get("type") == "kernel_integrity" and e.get("score", 0) >= 80:
                     detections.append(Detection(
