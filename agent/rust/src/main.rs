@@ -13,6 +13,7 @@ mod config;
 mod events;
 mod pipeline;
 mod protection;
+mod updater;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -42,6 +43,11 @@ async fn main() -> Result<()> {
 
     // Start self-protection watchdog (C6)
     protection::start_watchdog(&config).await?;
+    let own_binary_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| "/home/ubuntu/ghostlayer/ghostit-agent-linux-amd64".to_string());
+    updater::spawn_update_checker(config.pipeline_host.clone(), own_binary_path);
 
     // Start pipeline forwarder
     let pipeline = pipeline::PipelineForwarder::new(
