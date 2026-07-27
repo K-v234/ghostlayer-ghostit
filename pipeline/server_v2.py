@@ -357,6 +357,7 @@ def hot_to_result(events):
             "source_ip": e.get("source_ip"),
             "_tier": e.get("_tier"),
             "machine_id": e.get("machine_id"),
+            "customer_id": e.get("customer_id"),
         })
     return result
 
@@ -467,6 +468,7 @@ def list_events(
     type:      Optional[str] = Query(None, alias="type"),
     alert:     Optional[bool]= Query(None),
     min_score: int           = Query(0, ge=0, le=100),
+    customer_id: Optional[str] = Query(None),
 ):
     with HOT_LOCK:
         events = list(HOT_BUFFER)
@@ -474,6 +476,7 @@ def list_events(
     if type:    events = [e for e in events if (e.get("type") or e.get("event_type")) == type]
     if comm:    events = [e for e in events if e.get("comm") == comm]
     if alert is not None: events = [e for e in events if bool(e.get("alert")) == alert]
+    if customer_id: events = [e for e in events if e.get("customer_id") == customer_id]
     events.sort(key=lambda x: x.get("id", 0), reverse=True)
     total = len(events)
     events = events[offset:offset+limit]
@@ -1587,6 +1590,53 @@ async def agent_download():
     return FileResponse(AGENT_BINARY_PATH, media_type="application/octet-stream",
                          filename="ghostit-agent-linux-amd64")
 
+AGENT_BPF_OBJ_PATH = os.environ.get(
+
+    "GHOST_AGENT_BPF_OBJ_PATH",
+
+    "/home/ubuntu/ghostlayer/agent-releases/ghost_agent.bpf.o"
+
+)
+
+
+
+@app.get("/agent/ebpf-object")
+
+async def agent_ebpf_object():
+
+    if not os.path.exists(AGENT_BPF_OBJ_PATH):
+
+        return JSONResponse(status_code=404, content={"error": "no eBPF object published"})
+
+    return FileResponse(AGENT_BPF_OBJ_PATH, media_type="application/octet-stream",
+
+                         filename="ghost_agent.bpf.o")
+
+
+
+AGENT_INSTALL_SCRIPT_PATH = os.environ.get(
+
+    "GHOST_AGENT_INSTALL_SCRIPT_PATH",
+
+    "/home/ubuntu/ghostlayer/agent-releases/install.sh"
+
+)
+
+
+
+@app.get("/install.sh")
+
+async def install_script():
+
+    if not os.path.exists(AGENT_INSTALL_SCRIPT_PATH):
+
+        return JSONResponse(status_code=404, content={"error": "install script not published"})
+
+    return FileResponse(AGENT_INSTALL_SCRIPT_PATH, media_type="text/plain")
+
+
+
 if __name__ == "__main__":
+
     main()
 
