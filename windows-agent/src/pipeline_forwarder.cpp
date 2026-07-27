@@ -72,10 +72,30 @@ static std::pair<std::string,int> read_pipeline_config(
     return {host, port};
 }
 
-PipelineForwarder::PipelineForwarder(const std::string& host, int port)
+static std::string read_api_key_from_config(const std::string& default_key)
+{
+    std::string key = default_key;
+    std::ifstream f("C:\\ProgramData\\GhostIT\\ghost_config.ini");
+    if (!f.is_open()) return key;
+    std::string line;
+    bool in_pipeline = false;
+    while (std::getline(f, line)) {
+        if (line == "[pipeline]") { in_pipeline = true; continue; }
+        if (!line.empty() && line[0] == '[') { in_pipeline = false; continue; }
+        if (!in_pipeline) continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq);
+        std::string v = line.substr(eq + 1);
+        if (k == "api_key" && !v.empty()) key = v;
+    }
+    return key;
+}
+PipelineForwarder::PipelineForwarder(const std::string& host, int port, const std::string& api_key)
     : host_([&]{ return read_pipeline_config(host, port).first; }())
     , port_([&]{ return read_pipeline_config(host, port).second; }())
     , socket_fd_(-1)
+    , api_key_([&]{ return read_api_key_from_config(api_key); }())
     , connected_(false)
     , running_(false)
     , missed_hb_(0)
@@ -190,6 +210,15 @@ bool PipelineForwarder::tcp_connect()
     {
         std::lock_guard<std::mutex> lk(socket_mutex_);
         socket_fd_ = fd;
+    }
+    {
+        std::string auth_line = api_key_ + "\n";
+        int sent = ::send(fd, auth_line.c_str(), (int)auth_line.size(), 0);
+        if (sent <= 0) {
+            std::cerr << "[GhostIT C9] Failed to send API key -- connection unusable\n";
+            closesocket(fd);
+            return false;
+        }
     }
     connected_  = true;
     missed_hb_  = 0;

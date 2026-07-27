@@ -45,7 +45,8 @@ class PipelineForwarder {
 public:
     explicit PipelineForwarder(
         const std::string& host = PIPELINE_HOST,
-        int                port = PIPELINE_PORT
+        int                port = PIPELINE_PORT,
+        const std::string& api_key = ""
     );
     ~PipelineForwarder();
 
@@ -76,6 +77,7 @@ private:
 
     std::string        host_;
     int                port_;
+    std::string        api_key_;
     int                socket_fd_;
 
     std::mutex         socket_mutex_;
