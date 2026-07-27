@@ -53,6 +53,7 @@ pub struct PipelineForwarder {
     batch:            Arc<Mutex<Vec<Value>>>,
     stream:           Arc<Mutex<Option<TcpStream>>>,
     outbox:           Arc<DurableOutbox>,
+    customer_id:      String,
 }
 
 impl PipelineForwarder {
@@ -61,6 +62,7 @@ impl PipelineForwarder {
         port: u16,
         batch_size: usize,
         flush_interval_ms: u64,
+        customer_id: String,
     ) -> Result<Self> {
         let outbox_path = std::env::var("GHOST_OUTBOX_PATH")
             .unwrap_or_else(|_| "/var/lib/ghostit/outbox.jsonl".to_string());
@@ -73,6 +75,7 @@ impl PipelineForwarder {
             batch:            Arc::new(Mutex::new(Vec::new())),
             stream:           Arc::new(Mutex::new(None)),
             outbox,
+            customer_id,
         };
 
         forwarder.connect().await;
@@ -160,7 +163,10 @@ impl PipelineForwarder {
         });
     }
 
-    pub async fn forward(&mut self, event: Value) -> Result<()> {
+    pub async fn forward(&mut self, mut event: Value) -> Result<()> {
+        if let Value::Object(ref mut map) = event {
+            map.insert("customer_id".to_string(), Value::String(self.customer_id.clone()));
+        }
         let mut batch = self.batch.lock().await;
         batch.push(event);
         if batch.len() >= self.batch_size {

@@ -24,6 +24,7 @@ pub struct AgentConfig {
     pub pipeline_hb_port: u16,
     /// Log level
     pub log_level: String,
+    pub customer_id: String,
 }
 
 impl AgentConfig {
@@ -54,6 +55,8 @@ impl AgentConfig {
                 .unwrap_or(9001),
             log_level: std::env::var("GHOST_LOG_LEVEL")
                 .unwrap_or_else(|_| "info".to_string()),
+            customer_id: std::env::var("GHOST_CUSTOMER_ID")
+                .unwrap_or_else(|_| "unassigned".to_string()),
         })
     }
 }
