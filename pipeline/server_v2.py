@@ -1611,6 +1611,28 @@ async def agent_ebpf_object():
 
 
 
+AGENT_INSTALL_SCRIPT_PATH = os.environ.get(
+
+    "GHOST_AGENT_INSTALL_SCRIPT_PATH",
+
+    "/home/ubuntu/ghostlayer/agent-releases/install.sh"
+
+)
+
+
+
+@app.get("/install.sh")
+
+async def install_script():
+
+    if not os.path.exists(AGENT_INSTALL_SCRIPT_PATH):
+
+        return JSONResponse(status_code=404, content={"error": "install script not published"})
+
+    return FileResponse(AGENT_INSTALL_SCRIPT_PATH, media_type="text/plain")
+
+
+
 if __name__ == "__main__":
 
     main()
