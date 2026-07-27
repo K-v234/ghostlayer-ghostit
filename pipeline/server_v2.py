@@ -1587,6 +1587,31 @@ async def agent_download():
     return FileResponse(AGENT_BINARY_PATH, media_type="application/octet-stream",
                          filename="ghostit-agent-linux-amd64")
 
+AGENT_BPF_OBJ_PATH = os.environ.get(
+
+    "GHOST_AGENT_BPF_OBJ_PATH",
+
+    "/home/ubuntu/ghostlayer/agent-releases/ghost_agent.bpf.o"
+
+)
+
+
+
+@app.get("/agent/ebpf-object")
+
+async def agent_ebpf_object():
+
+    if not os.path.exists(AGENT_BPF_OBJ_PATH):
+
+        return JSONResponse(status_code=404, content={"error": "no eBPF object published"})
+
+    return FileResponse(AGENT_BPF_OBJ_PATH, media_type="application/octet-stream",
+
+                         filename="ghost_agent.bpf.o")
+
+
+
 if __name__ == "__main__":
+
     main()
 

@@ -12,6 +12,7 @@ services:
       - "9001:9001"
     volumes:
       - ghostit-data:/data
+      - /home/ubuntu/ghostlayer/agent-releases:/home/ubuntu/ghostlayer/agent-releases
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c",
