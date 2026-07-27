@@ -367,12 +367,44 @@ def df_to_json(df):
 # ------------------------------------------------------------------ #
 # TCP Ingestion                                                       #
 # ------------------------------------------------------------------ #
+API_KEYS_PATH = os.environ.get("GHOST_API_KEYS_PATH",
+    "/home/ubuntu/ghostlayer/agent-releases/api_keys.json")
+
+def load_api_keys():
+    try:
+        with open(API_KEYS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
 def handle_client(conn, addr):
     BATCH_SIZE = 1000
     FLUSH_MS   = 0.100
     buf, pending = b"", []
     stats = {"batches": 0, "events": 0, "errors": 0}
     last_flush = time.monotonic()
+    conn.settimeout(5.0)
+    auth_buf = b""
+    authenticated_customer_id = None
+    api_keys = load_api_keys()
+    try:
+        while b"\n" not in auth_buf:
+            chunk = conn.recv(4096)
+            if not chunk:
+                conn.close()
+                return
+            auth_buf += chunk
+        auth_line, buf = auth_buf.split(b"\n", 1)
+        submitted_key = auth_line.decode("utf-8", errors="replace").strip()
+        authenticated_customer_id = api_keys.get(submitted_key)
+        if not authenticated_customer_id:
+            log.warning(f"[{addr}] REJECTED -- invalid or missing API key")
+            conn.close()
+            return
+        log.info(f"[{addr}] Authenticated as customer_id={authenticated_customer_id}")
+    except (TimeoutError, ConnectionResetError, BrokenPipeError, OSError):
+        conn.close()
+        return
     conn.settimeout(FLUSH_MS)
     def flush():
         if not pending: return
@@ -406,6 +438,7 @@ def handle_client(conn, addr):
                     # TCP connection's own address, no agent-side changes needed.
                     for ev in batch:
                         ev["source_ip"] = addr[0]
+                        ev["customer_id"] = authenticated_customer_id
                     pending.extend(batch)
                 except Exception as ex:
                     stats["errors"] += 1
