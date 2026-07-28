@@ -1218,6 +1218,80 @@ def threat_hunt(
         },
         "events": hot_to_result(results),
     })
+@app.get("/events/history")
+
+def events_history(
+
+    file_pattern:  Optional[str] = Query(None),
+
+    comm_pattern:  Optional[str] = Query(None),
+
+    event_type:    Optional[str] = Query(None),
+
+    customer_id:   Optional[str] = Query(None),
+
+    min_score:     int           = Query(0, ge=0, le=100),
+
+    days_back:     int           = Query(7, ge=1, le=90),
+
+    limit:         int           = Query(200, ge=1, le=5000),
+
+):
+
+    conn = get_duckdb()
+
+    try:
+
+        has_parquet = any(True for _ in pathlib.Path(PARQUET_DIR).rglob("*.parquet"))
+
+        if not has_parquet:
+
+            return {"total": 0, "events": [], "note": "no historical parquet data yet"}
+
+        cutoff_ns = int((time.time() - days_back * 86400) * 1e9)
+
+        conditions = [f"ts >= {cutoff_ns}"]
+
+        if min_score: conditions.append(f"score >= {min_score}")
+
+        if event_type: conditions.append(f"(type = \'{event_type}\' OR event_type = \'{event_type}\')")
+
+        if customer_id: conditions.append(f"customer_id = \'{customer_id}\'")
+
+        if comm_pattern: conditions.append(f"comm ILIKE \'%{comm_pattern}%\'")
+
+        if file_pattern: conditions.append(f"(file ILIKE \'%{file_pattern}%\' OR path ILIKE \'%{file_pattern}%\')")
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
+
+            SELECT * FROM parquet_events
+
+            WHERE {where_clause}
+
+            ORDER BY ts DESC
+
+            LIMIT {limit}
+
+        """
+
+        df = conn.execute(query).fetchdf()
+
+        events = df_to_json(df)
+
+        return {"total": len(events), "days_searched": days_back, "events": events}
+
+    except Exception as ex:
+
+        log.error(f"events_history query failed: {ex}")
+
+        return {"total": 0, "events": [], "error": str(ex)}
+
+    finally:
+
+        conn.close()
+
 @app.get("/hunt/anomalies")
 def hunt_anomalies(
     host:  Optional[str] = Query(None),
