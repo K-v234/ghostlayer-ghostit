@@ -1,6 +1,6 @@
 [package]
 name = "ghost-agent"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 authors = ["Ghost Layer Technologies <keerthivahananbkv@gmail.com>"]
 description = "Ghost IT eBPF Agent — Autonomous Digital Immune System"
