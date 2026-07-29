@@ -41,6 +41,7 @@ pub async fn start_watchdog(config: &AgentConfig) -> Result<()> {
         loop {
             ticker.tick().await;
             notify_systemd_watchdog();
+            verify_binary_hash();
             seq += 1;
             let ts = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
