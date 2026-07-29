@@ -200,23 +200,72 @@ class AutonomousResponseEngine:
         return result
 
     def _execute_action(self, entity_id: str, tier_def: dict):
-        """
-        Real action execution -- deliberately NOT IMPLEMENTED yet.
-        This is intentional: the decision engine, evidence logging,
-        and safety gates above are complete and real, but actually
-        touching a real process/network/host is a separate, later
-        step that should only be built once simulation mode has run
-        for a real observation period against real production data
-        and been reviewed by a human, per the module's safety design.
-        """
-        log.error(
-            f"[AutonomousResponse] ACTIONS_ENABLED=true but _execute_action "
-            f"is not yet implemented for tier {tier_def['tier']} "
-            f"({tier_def['name']}) on {entity_id} -- decision logged, "
-            f"no actual system action taken. This is the correct, safe "
-            f"behavior until real action execution is deliberately built "
-            f"and tested."
-        )
+
+        import signal
+
+        pid = None
+
+        if entity_id.startswith("pid:"):
+
+            try:
+
+                pid = int(entity_id.split(":", 1)[1])
+
+            except ValueError:
+
+                pass
+
+
+
+        if tier_def["name"] == "suspend_process":
+
+            if pid is None:
+
+                log.error(f"[AutonomousResponse] Cannot suspend -- no parseable PID in {entity_id}")
+
+                return
+
+            try:
+
+                os.kill(pid, signal.SIGSTOP)
+
+                log.critical(
+
+                    f"[AutonomousResponse] REAL ACTION EXECUTED -- SIGSTOP sent to pid {pid} "
+
+                    f"(tier {tier_def['tier']}, {tier_def['name']}). Process is now frozen, "
+
+                    f"fully reversible via SIGCONT, all state preserved for investigation."
+
+                )
+
+            except ProcessLookupError:
+
+                log.warning(f"[AutonomousResponse] pid {pid} no longer exists -- nothing to suspend")
+
+            except PermissionError:
+
+                log.error(f"[AutonomousResponse] Permission denied suspending pid {pid} -- agent needs elevated privileges")
+
+            except Exception as ex:
+
+                log.error(f"[AutonomousResponse] Real suspend action failed for pid {pid}: {ex}")
+
+        else:
+
+            log.error(
+
+                f"[AutonomousResponse] ACTIONS_ENABLED=true but tier "
+
+                f"{tier_def['tier']} ({tier_def['name']}) has no real "
+
+                f"implementation yet -- decision logged, no action taken. "
+
+                f"Only suspend_process (tier 2) is currently implemented."
+
+            )
+
+
 
     def get_decision_history(self, entity_id: str = None, limit: int = 50) -> list[dict]:
         with self._lock:
