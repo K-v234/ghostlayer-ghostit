@@ -56,6 +56,7 @@ async fn main() -> Result<()> {
         config.batch_size,
         config.flush_interval_ms,
         config.customer_id.clone(),
+        config.api_key.clone(),
     ).await?;
 
     // Start eBPF event loop (C1)
