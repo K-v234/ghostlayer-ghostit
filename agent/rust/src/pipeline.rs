@@ -54,6 +54,7 @@ pub struct PipelineForwarder {
     stream:           Arc<Mutex<Option<TcpStream>>>,
     outbox:           Arc<DurableOutbox>,
     customer_id:      String,
+    api_key:          String,
 }
 
 impl PipelineForwarder {
@@ -63,6 +64,7 @@ impl PipelineForwarder {
         batch_size: usize,
         flush_interval_ms: u64,
         customer_id: String,
+        api_key: String,
     ) -> Result<Self> {
         let outbox_path = std::env::var("GHOST_OUTBOX_PATH")
             .unwrap_or_else(|_| "/var/lib/ghostit/outbox.jsonl".to_string());
@@ -76,6 +78,7 @@ impl PipelineForwarder {
             stream:           Arc::new(Mutex::new(None)),
             outbox,
             customer_id,
+            api_key,
         };
 
         forwarder.connect().await;
@@ -89,7 +92,12 @@ impl PipelineForwarder {
 
     async fn connect(&self) {
         match TcpStream::connect(format!("{}:{}", self.host, self.port)).await {
-            Ok(s) => {
+            Ok(mut s) => {
+                let auth_line = format!("{}\n", self.api_key);
+                if let Err(e) = s.write_all(auth_line.as_bytes()).await {
+                    warn!(error = %e, "Failed to send API key -- connection unusable");
+                    return;
+                }
                 info!(host = %self.host, port = self.port, "Connected to pipeline");
                 *self.stream.lock().await = Some(s);
             }
@@ -213,7 +221,7 @@ impl PipelineForwarder {
         };
         drop(s);
         if send_ok {
-            debug!(bytes = pending.len(), "Flushed via durable outbox");
+            info!(bytes = pending.len(), "Flushed via durable outbox");
             if let Err(e) = self.outbox.clear().await {
                 error!(error = %e, "Failed to clear durable outbox after successful send");
             }

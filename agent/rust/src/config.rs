@@ -25,6 +25,7 @@ pub struct AgentConfig {
     /// Log level
     pub log_level: String,
     pub customer_id: String,
+    pub api_key: String,
 }
 
 impl AgentConfig {
@@ -57,6 +58,8 @@ impl AgentConfig {
                 .unwrap_or_else(|_| "info".to_string()),
             customer_id: std::env::var("GHOST_CUSTOMER_ID")
                 .unwrap_or_else(|_| "unassigned".to_string()),
+            api_key: std::env::var("GHOST_API_KEY")
+                .unwrap_or_else(|_| "".to_string()),
         })
     }
 }
