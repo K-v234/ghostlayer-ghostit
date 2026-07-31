@@ -137,6 +137,7 @@ from detection.ransomware.ema_detector import RansomwareEMADetector
 from detection.ransomware.file_entropy_monitor import FileEntropyMonitor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
 from detectors.lolbin_detector import LOLBinDetector
+from detectors.exfiltration_detector import ExfiltrationDetector
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -275,6 +276,7 @@ class DetectionEngine:
         self.start_time  = time.time()
         self._ransomware = RansomwareEMADetector()
         self._lolbin     = LOLBinDetector()
+        self._exfil      = ExfiltrationDetector()
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -464,6 +466,21 @@ class DetectionEngine:
                     _observe_threshold("C14_lolbin", 85)
                 else:
                     _observe_threshold("C14_lolbin", 0)
+                # C20: Insider Threat / Bulk Exfiltration
+                xf = self._exfil.check_event(e)
+                if xf:
+                    detections.append(Detection(
+                        rule_id     = "C20_EXFILTRATION",
+                        severity    = xf.severity,
+                        title       = f"Bulk file access: {xf.distinct_files} distinct files in {xf.window_sec}s",
+                        description = f"Process {xf.comm} (pid {xf.pid}) accessed {xf.distinct_files} distinct files rapidly -- possible data staging/exfiltration",
+                        confidence  = 90 if xf.severity == "critical" else 75,
+                        evidence    = [e],
+                    ))
+                    _feed_cortex(e_pid, "C20_exfiltration", f"bulk_access:{xf.distinct_files}_files")
+                    _observe_threshold("C20_exfiltration", 90 if xf.severity == "critical" else 75)
+                else:
+                    _observe_threshold("C20_exfiltration", 0)
                 if d:
                     _observe_threshold(f"rule_{d.rule_id}", d.confidence)
                 # C19: LKRG kernel integrity violations
