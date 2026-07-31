@@ -5,6 +5,7 @@
 //!
 //! Ghost Layer Technologies — CONFIDENTIAL
 
+mod hybrid_sign;
 use anyhow::Result;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
