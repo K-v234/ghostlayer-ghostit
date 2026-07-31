@@ -238,6 +238,12 @@ class AutonomousResponseEngine:
                     f"fully reversible via SIGCONT, all state preserved for investigation."
 
                 )
+                try:
+                    from self_heal import run_self_heal
+                    heal_report = run_self_heal(dry_run=not ACTIONS_ENABLED)
+                    log.critical(f"[AutonomousResponse] Self-heal follow-up complete -- healed={heal_report.get('healed')}")
+                except Exception as heal_ex:
+                    log.error(f"[AutonomousResponse] Self-heal follow-up failed: {heal_ex}")
 
             except ProcessLookupError:
 
