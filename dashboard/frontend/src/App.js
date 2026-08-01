@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
-const API      = (process.env.REACT_APP_API_URL || "http://localhost:8000") + "/api";
+const API      = (process.env.REACT_APP_DASHBOARD_API_URL || "http://localhost:8001") + "/api";
 const PIPELINE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
 function Login({ onLogin }) {

@@ -82,7 +82,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_API_URL=http://3.7.6.9:8000
+      - REACT_APP_API_URL=http://13.205.24.55:8000
+      - REACT_APP_DASHBOARD_API_URL=http://13.205.24.55:8001
     depends_on:
       - pipeline
     restart: unless-stopped
