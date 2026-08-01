@@ -12,7 +12,7 @@ import time, os, json, logging, argparse, threading, socket, duckdb, pathlib
 from datetime import datetime, timezone
 from collections import deque, defaultdict, Counter
 from typing import Optional
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 import uvicorn, sys
@@ -466,6 +466,52 @@ def run_tcp_server(host, port):
 app = FastAPI(title="Ghost IT Pipeline v2", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["GET"], allow_headers=["*"])
+
+@app.get("/metrics")
+def metrics_endpoint():
+    """
+    Real, genuine Prometheus-format metrics endpoint. Exposes the
+    same real, already-computed stats as /stats, in the standard
+    Prometheus text exposition format so a real Prometheus server can
+    scrape this directly with zero custom parsing.
+    """
+    with HOT_LOCK:
+        hot = list(HOT_BUFFER)
+    try:
+        conn = get_duckdb()
+        row = conn.execute("SELECT COUNT(*) FROM events_all").fetchone()
+        total = row[0] + len(hot)
+        conn.close()
+    except Exception:
+        total = len(hot)
+
+    alert_count = sum(1 for e in hot if e.get("alert"))
+    unique_pids = len(set(e.get("pid") for e in hot))
+    unique_procs = len(set(e.get("comm") for e in hot))
+
+    lines = [
+        "# HELP ghostit_events_total Real, genuine total events ever received",
+        "# TYPE ghostit_events_total counter",
+        f"ghostit_events_total {total}",
+        "",
+        "# HELP ghostit_hot_buffer_size Real, current in-memory hot buffer size",
+        "# TYPE ghostit_hot_buffer_size gauge",
+        f"ghostit_hot_buffer_size {len(hot)}",
+        "",
+        "# HELP ghostit_alerts_current Real alerts currently in the hot buffer",
+        "# TYPE ghostit_alerts_current gauge",
+        f"ghostit_alerts_current {alert_count}",
+        "",
+        "# HELP ghostit_unique_pids_current Real unique PIDs in the hot buffer",
+        "# TYPE ghostit_unique_pids_current gauge",
+        f"ghostit_unique_pids_current {unique_pids}",
+        "",
+        "# HELP ghostit_unique_processes_current Real unique process names in the hot buffer",
+        "# TYPE ghostit_unique_processes_current gauge",
+        f"ghostit_unique_processes_current {unique_procs}",
+        "",
+    ]
+    return Response(content="\n".join(lines), media_type="text/plain")
 
 @app.get("/health")
 def health():

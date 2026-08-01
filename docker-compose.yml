@@ -71,7 +71,35 @@ services:
       - pipeline
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ghostit-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ghostit-prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    restart: unless-stopped
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ghostit-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=ghostit-admin-2026
+    volumes:
+      - ghostit-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 volumes:
+  ghostit-prometheus-data:
+    driver: local
+  ghostit-grafana-data:
+    driver: local
   ghostit-data:
     driver: local
 
