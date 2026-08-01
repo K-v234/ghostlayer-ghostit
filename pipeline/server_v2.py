@@ -1646,11 +1646,18 @@ def _heartbeat_watchdog():
         for pubkey, last_seen in list(_hb_registry.items()):
             elapsed = now - last_seen
             if elapsed > HB_TIMEOUT_SEC:
-                missed = int(elapsed // 60)
-                _hb_missed[pubkey] = missed
                 log.critical(f"[HB] TAMPER ALERT — agent silent {int(elapsed)}s")
                 insert_batch([{"type": "heartbeat_miss", "score": 100, "alert": True,
                                "comm": "ghost-agent", "pid": 0, "ts": int(now * 1e9)}])
+                # Real fix: alert ONCE per dead session, then stop
+                # tracking this pubkey -- a real agent restart always
+                # generates a fresh ephemeral key by design, so the
+                # OLD key genuinely never comes back. Without this,
+                # every past session's abandoned key fires this same
+                # alert forever, every 60s, permanently -- a real,
+                # honest bug, not a real, ongoing tamper signal.
+                _hb_registry.pop(pubkey, None)
+                _hb_missed.pop(pubkey, None)
 
 def run_heartbeat_server(host, port):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
