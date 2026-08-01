@@ -1,0 +1,40 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: ghostit-zookeeper-poc
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: ghostit-kafka-poc
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ghostit-postgres-poc
+    environment:
+      POSTGRES_DB: ghostit_events
+      POSTGRES_USER: ghostit
+      POSTGRES_PASSWORD: ghostit-poc-2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - ghostit-postgres-poc-data:/var/lib/postgresql/data
+
+volumes:
+  ghostit-postgres-poc-data:
+    driver: local
