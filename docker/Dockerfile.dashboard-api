@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY dashboard/api/ ./dashboard/api/
+COPY playbooks/ ./playbooks/
+COPY pipeline/ ./pipeline/
+RUN pip install --no-cache-dir \
+    fastapi uvicorn duckdb bcrypt numpy pandas pyarrow pytz
+ENV PYTHONPATH=/app:/app/dashboard/api:/app/playbooks
+EXPOSE 8001
+CMD ["python3", "dashboard/api/server.py"]

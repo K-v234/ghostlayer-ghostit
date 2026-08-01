@@ -58,6 +58,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard-api
+    container_name: ghostit-dashboard-api
+    ports:
+      - "8001:8001"
+    volumes:
+      - ghostit-data:/data
+      - /home/ubuntu/ghostlayer/data:/root/ghostlayer/data
+    environment:
+      - PIPELINE_API=http://pipeline:8000
+    depends_on:
+      pipeline:
+        condition: service_healthy
+    restart: unless-stopped
   dashboard:
     build:
       context: .
