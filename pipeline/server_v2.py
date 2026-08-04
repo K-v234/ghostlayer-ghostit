@@ -1225,9 +1225,9 @@ def threat_hunt(
             base.extend(buf)
     seen_ids = set()
     results = []
-    cutoff_ns = None
+    cutoff_sec = None
     if since_minutes:
-        cutoff_ns = (time.time() - since_minutes * 60) * 1e9
+        cutoff_sec = (time.time() - since_minutes * 60)
     watchlisted_pids = set()
     if watchlist_only:
         with WATCHLIST_LOCK:
@@ -1248,7 +1248,7 @@ def threat_hunt(
             continue
         if comm_pattern and comm_pattern.lower() not in str(e.get("comm", "")).lower():
             continue
-        if cutoff_ns is not None and e.get("ts", 0) < cutoff_ns:
+        if cutoff_sec is not None and e.get("received_at", 0) < cutoff_sec:
             continue
         if watchlist_only and e.get("pid") not in watchlisted_pids:
             continue
@@ -1294,9 +1294,9 @@ def events_history(
 
             return {"total": 0, "events": [], "note": "no historical parquet data yet"}
 
-        cutoff_ns = int((time.time() - days_back * 86400) * 1e9)
+        cutoff_sec = int(time.time() - days_back * 86400)
 
-        conditions = [f"ts >= {cutoff_ns}"]
+        conditions = [f"received_at >= {cutoff_sec}"]
 
         if min_score: conditions.append(f"score >= {min_score}")
 
