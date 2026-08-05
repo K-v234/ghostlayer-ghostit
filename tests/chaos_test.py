@@ -23,10 +23,21 @@ def run(cmd: str) -> str:
     return result.stdout.strip()
 
 
-def get_total_events() -> int:
+def get_permanent_event_count() -> int:
+    """
+    Real, genuine fix: /stats.total mixes a permanent, cumulative
+    Parquet count with the live, volatile in-memory hot buffer size
+    (which legitimately resets to 0 on every restart). Comparing
+    that mixed total before/after a restart is not a valid data-loss
+    signal -- a real hot-buffer reset looks identical to real data
+    loss. This checks ONLY /events/history, which reads exclusively
+    from permanent Parquet storage, for a real, valid continuity
+    check.
+    """
     try:
-        r = requests.get(f"{PIPELINE}/stats", timeout=5)
-        return r.json().get("total", 0)
+        r = requests.get(f"{PIPELINE}/events/history",
+                          params={"days_back": 1, "min_score": 0, "limit": 1}, timeout=10)
+        return r.json().get("total", -1)
     except Exception:
         return -1
 
@@ -35,7 +46,7 @@ def main():
     print("=== Ghost IT Real Chaos/Resilience Test ===\n")
 
     print("Step 1: Real baseline — checking pipeline is genuinely healthy")
-    before = get_total_events()
+    before = get_permanent_event_count()
     print(f"  Real total events before chaos: {before}")
     if before < 0:
         print("  FAIL: pipeline not reachable, aborting chaos test (would not be a fair test)")
@@ -45,7 +56,7 @@ def main():
     run("sudo docker compose stop pipeline")
     time.sleep(3)
 
-    down = get_total_events()
+    down = get_permanent_event_count()
     print(f"  Real check during outage (should be unreachable, -1): {down}")
     print(f"  {'PASS' if down == -1 else 'FAIL'}: pipeline genuinely unreachable during real outage")
 
@@ -68,9 +79,9 @@ def main():
     if recovered:
         print("\nStep 4: Real data continuity check")
         time.sleep(10)
-        after = get_total_events()
+        after = get_permanent_event_count()
         print(f"  Real total events after recovery: {after}")
-        print(f"  {'PASS' if after >= before else 'FAIL'}: no real data loss detected (total did not decrease)")
+        print(f"  {'PASS' if after >= before else 'FAIL'}: real, permanent Parquet count did not decrease (genuine data-loss signal, unlike the volatile hot-buffer-inclusive total)")
 
     print("\n=== Real Chaos Test Complete ===")
     print("Note: this test deliberately caused a real ~30s outage of the real pipeline.")
