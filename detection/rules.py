@@ -186,6 +186,41 @@ def check_event(event: dict) -> Optional[Detection]:
                 confidence  = 60 if trusted else 90,
                 evidence    = [event],
             )
+    # R016 — T1055 Process Injection tool signature
+    if any(t in (event.get("args") or "") for t in ("ptrace", "process_vm_writev", "LD_PRELOAD=")) or \
+       (comm == "gdb" and "-p" in (event.get("args") or "")):
+        return Detection(
+            rule_id     = "R016",
+            severity    = "high",
+            title       = "Process Injection Tool Signature",
+            description = f"{comm} used a real process-injection technique (T1055)",
+            confidence  = 85,
+            evidence    = [event],
+        )
+    # R017 — T1547 Persistence location write
+    if type_ in ("open", "lsm_open", "write") and file_ and any(
+        p in file_ for p in ("/etc/cron.d/", "/etc/cron.daily/", ".bashrc", ".profile",
+                              "/etc/systemd/system/", "/etc/rc.local")):
+        return Detection(
+            rule_id     = "R017",
+            severity    = "high",
+            title       = "Persistence Location Write",
+            description = f"{comm} wrote to known real persistence location {file_} (T1547)",
+            confidence  = 85,
+            evidence    = [event],
+        )
+    # R018 — T1490 Inhibit System Recovery
+    args_lower = (event.get("args") or "").lower()
+    if any(p in args_lower for p in ("vssadmin delete shadows", "wbadmin delete",
+                                       "bcdedit /set", "wmic shadowcopy delete")):
+        return Detection(
+            rule_id     = "R018",
+            severity    = "critical",
+            title       = "Inhibit System Recovery",
+            description = f"{comm} attempted to delete backups/shadow copies — ransomware precursor (T1490)",
+            confidence  = 95,
+            evidence    = [event],
+        )
 
     return None
 
