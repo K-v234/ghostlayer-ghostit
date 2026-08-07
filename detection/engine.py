@@ -327,8 +327,26 @@ class DetectionEngine:
         # Use max_seen_id as cursor
         if not hasattr(self, "_max_seen_id"):
             self._max_seen_id = self.max_id_at_start
+        # Real, genuine fix for the true, final root cause found tonight:
+        # EVENT_SEQ on the server is an in-memory counter that resets to a
+        # new timestamp-based seed on every pipeline restart. A stale
+        # since_id from before a restart becomes permanently higher than
+        # any new, post-restart event ID, silently freezing this method
+        # forever. Detect this by comparing our cursor against the
+        # server's current actual max id, and reset if we're ahead of it.
+        try:
+            probe = api_get(f"{self.api}/events?limit=1&offset=0&min_score=0")
+            probe_events = probe.get("events", [])
+            if probe_events:
+                real_max = probe_events[0].get("id", 0)
+                if real_max < self._max_seen_id:
+                    log.warning(f"Pipeline restart detected (real_max={real_max} < cursor={self._max_seen_id}) -- resetting cursor")
+                    self._max_seen_id = 0
+        except Exception:
+            pass
         data = api_get(f"{self.api}/events/since?since_id={self._max_seen_id}&limit=500")
         events = data.get("events", [])
+        log.info(f"DEBUG_FETCH_NEW since_id={self._max_seen_id} got={len(events)} max_id_in_response={data.get('max_id')} raw_keys={list(data.keys())}")
         if events:
             self._max_seen_id = data.get("max_id", self._max_seen_id)
         # Supplemental fetch: shell opens of /tmp and /dev/shm — high-value
@@ -358,7 +376,7 @@ class DetectionEngine:
     def _fetch_window(self) -> list[dict]:
         """Fetch recent events — only last 200 to avoid historical noise."""
         offset = max(0, self.last_offset - 200)
-        data   = api_get(f"{self.api}/events?limit=200&offset={offset}&min_score=0")
+        data   = api_get(f"{self.api}/events?limit=2000&offset={offset}&min_score=0")
         return data.get("events", [])
 
     def run_once(self) -> int:

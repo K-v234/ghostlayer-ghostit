@@ -1306,7 +1306,7 @@ def events_history(
 
         if comm_pattern: conditions.append(f"comm ILIKE \'%{comm_pattern}%\'")
 
-        if file_pattern: conditions.append(f"(file ILIKE \'%{file_pattern}%\' OR path ILIKE \'%{file_pattern}%\')")
+        if file_pattern: conditions.append(f"file ILIKE '%{file_pattern}%'")
 
         where_clause = " AND ".join(conditions)
 
