@@ -117,8 +117,18 @@ impl PipelineForwarder {
 
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_millis(ms));
+            let mut tick_count: u64 = 0;
             loop {
                 ticker.tick().await;
+                tick_count += 1;
+                if tick_count % 60 == 0 {
+                    let mut s = stream.lock().await;
+                    if s.is_some() {
+                        info!("Periodic forced reconnect -- ensuring pipeline connection is genuinely fresh");
+                        *s = None;
+                    }
+                    drop(s);
+                }
 
                 {
                     let mut b = batch.lock().await;
