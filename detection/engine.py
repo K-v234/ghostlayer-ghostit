@@ -139,6 +139,7 @@ from detection.ransomware.file_entropy_monitor import FileEntropyMonitor
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'))
 from detectors.lolbin_detector import LOLBinDetector
 from detectors.exfiltration_detector import ExfiltrationDetector
+from detectors.identity_detector import IdentityDetector
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -351,6 +352,7 @@ class DetectionEngine:
         self._ransomware = RansomwareEMADetector()
         self._lolbin     = LOLBinDetector()
         self._exfil      = ExfiltrationDetector()
+        self._identity   = IdentityDetector()
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -583,6 +585,69 @@ class DetectionEngine:
                 else:
                     _observe_threshold("C15_ransomware", 0)
                 # C14: LOLBin
+
+                # C10: Identity Intelligence
+
+                pth = self._identity.check_pass_the_hash(e)
+
+                if pth:
+
+                    _id_confidence = 90 if pth.severity == "critical" else 75
+
+                    detections.append(Detection(
+
+                        rule_id     = "C10_IDENTITY",
+
+                        severity    = pth.severity,
+
+                        title       = f"Identity: {pth.technique}",
+
+                        description = pth.detail,
+
+                        confidence  = _id_confidence,
+
+                        evidence    = [e],
+
+                    ))
+
+                    _feed_cortex(e_pid, "C10_identity", pth.technique)
+
+                    _observe_threshold("C10_identity", _id_confidence)
+
+                else:
+
+                    _observe_threshold("C10_identity", 0)
+
+                travel = self._identity.check_impossible_travel(e)
+
+                if travel:
+
+                    _travel_confidence = 90 if travel.severity == "critical" else 75
+
+                    detections.append(Detection(
+
+                        rule_id     = "C10_IDENTITY_TRAVEL",
+
+                        severity    = travel.severity,
+
+                        title       = f"Identity: {travel.technique}",
+
+                        description = travel.detail,
+
+                        confidence  = _travel_confidence,
+
+                        evidence    = [e],
+
+                    ))
+
+                    _feed_cortex(e_pid, "C10_identity", travel.technique)
+
+                    _observe_threshold("C10_identity_travel", _travel_confidence)
+
+                else:
+
+                    _observe_threshold("C10_identity_travel", 0)
+
                 l = self._lolbin.check_event(e)
                 if l:
                     detections.append(Detection(
