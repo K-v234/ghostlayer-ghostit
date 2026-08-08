@@ -21,7 +21,7 @@ ENV REPLAY_DB_PATH=/data/attack_replay.duckdb
 ENV EVOLUTION_DB_PATH=/data/self_evolution.duckdb
 CMD ["python3", "detection/engine.py", \
      "--api", "http://ghostit-pipeline:8000", \
-     "--poll-interval", "10", \
+     "--poll-interval", "3", \
      "--pipeline-host", "ghostit-pipeline", \
      "--pipeline-port", "9000", \
      "--log-level", "DEBUG"]
