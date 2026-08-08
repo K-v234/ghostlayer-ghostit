@@ -19,6 +19,97 @@ import uvicorn, sys
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+
+
+# ------------------------------------------------------------------ #
+
+# Redis Streams publish (Week 2 -- replaces polling for consumers)   #
+
+# Two streams by priority, matching the existing eBPF ring-buffer    #
+
+# pattern: critical events (alerts, deception hits) go to their own  #
+
+# stream so a burst of low-priority telemetry can never starve them. #
+
+# Publish failures are logged and swallowed -- Redis is an           #
+
+# acceleration path, not the durability path (WAL + Parquet already  #
+
+# own that). A consumer that only reads Redis and never falls back   #
+
+# to /events/since would be a regression; this is additive.          #
+
+# ------------------------------------------------------------------ #
+
+import redis as _redis
+
+
+
+REDIS_HOST = os.environ.get("GHOST_REDIS_HOST", "redis")
+
+REDIS_PORT = int(os.environ.get("GHOST_REDIS_PORT", "6379"))
+
+STREAM_CRITICAL = "ghost:events:critical"
+
+STREAM_STANDARD = "ghost:events:standard"
+
+STREAM_MAXLEN = 50_000  # approx trim, keeps memory bounded
+
+
+
+_redis_client = None
+
+
+
+def get_redis():
+
+    global _redis_client
+
+    if _redis_client is None:
+
+        try:
+
+            _redis_client = _redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True, socket_connect_timeout=2)
+
+            _redis_client.ping()
+
+        except Exception as ex:
+
+            log.warning(f"Redis unavailable at startup, will retry lazily: {ex}")
+
+            _redis_client = None
+
+    return _redis_client
+
+
+
+def redis_publish(events):
+
+    r = get_redis()
+
+    if r is None:
+
+        return
+
+    try:
+
+        for e in events:
+
+            is_critical = bool(e.get("alert")) or e.get("score", 0) >= 80
+
+            stream = STREAM_CRITICAL if is_critical else STREAM_STANDARD
+
+            r.xadd(stream, {"payload": json.dumps(e, default=str)}, maxlen=STREAM_MAXLEN, approximate=True)
+
+    except Exception as ex:
+
+        log.warning(f"Redis publish failed (event still safe in WAL/Parquet): {ex}")
+
+        global _redis_client
+
+        _redis_client = None  # force reconnect attempt next time
+
+
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -493,6 +584,7 @@ def insert_batch(events):
     with _flush_lock:
         wal_append(enriched)
         _flush_pending.extend(enriched)
+    redis_publish(enriched)
     return len(enriched)
 
 def get_duckdb():

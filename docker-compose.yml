@@ -23,11 +23,42 @@ services:
       timeout: 5s
       retries: 5
 
+
+  redis:
+
+    image: redis:7-alpine
+
+    container_name: ghostit-redis
+
+    ports:
+
+      - "6379:6379"
+
+    volumes:
+
+      - ghostit-redis-data:/data
+
+    command: redis-server --appendonly yes
+
+    healthcheck:
+
+      test: ["CMD", "redis-cli", "ping"]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 5
+
+    restart: unless-stopped
+
   canary:
     build:
       context: .
       dockerfile: docker/Dockerfile.canary
     container_name: ghostit-canary
+    env_file:
+      - /etc/ghostit/.env
     ports:
       - "8080:8080"
     volumes:
@@ -61,10 +92,14 @@ services:
       context: .
       dockerfile: docker/Dockerfile.detection
     container_name: ghostit-detection
+    env_file:
+      - /etc/ghostit/.env
     volumes:
       - ghostit-data:/data
     depends_on:
       pipeline:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -89,6 +124,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.causal
     container_name: ghostit-causal
+    env_file:
+      - /etc/ghostit/.env
     volumes:
       - ghostit-data:/data
     depends_on:
@@ -196,6 +233,11 @@ volumes:
   ghostit-grafana-data:
     driver: local
   ghostit-data:
+    driver: local
+
+
+  ghostit-redis-data:
+
     driver: local
 
 networks:

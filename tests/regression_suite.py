@@ -42,29 +42,78 @@ def test_stats():
     check("Real total events > 0", data.get("total", 0) > 0, f"total={data.get('total')}")
 
 
+
 def test_history_endpoint_not_broken():
+
     """
+
     Real, genuine regression check for tonight's actual bug: verifies
+
     /events/history can find data known to exist via /top. This is
+
     the SPECIFIC test that would have caught tonight's timestamp bug
+
     immediately, the first time it was introduced.
+
+
+
+    /top reads the hot buffer (in-memory, instant); /events/history
+
+    reads Parquet only (flushed periodically). A brand-new event can
+
+    legitimately exist in /top before it's been flushed -- retry with
+
+    a short backoff to tolerate that real timing gap, not to mask a
+
+    real bug.
+
     """
+
     top = requests.get(f"{PIPELINE}/top?limit=5", timeout=5, headers=AUTH_HEADERS).json()
+
     procs = top.get("processes", [])
+
     if not procs:
+
         check("History regression check (no real data to test against)", True, "skipped, no /top data")
+
         return
+
     real_comm = procs[0]["comm"]
-    hist = requests.get(
-        f"{PIPELINE}/events/history",
-        params={"days_back": 1, "comm_pattern": real_comm, "min_score": 0, "limit": 5},
-        timeout=10,
-        headers=AUTH_HEADERS,
-    ).json()
+
+    total = 0
+
+    for attempt in range(5):
+
+        hist = requests.get(
+
+            f"{PIPELINE}/events/history",
+
+            params={"days_back": 1, "comm_pattern": real_comm, "min_score": 0, "limit": 5},
+
+            timeout=10,
+
+            headers=AUTH_HEADERS,
+
+        ).json()
+
+        total = hist.get("total", 0)
+
+        if total > 0:
+
+            break
+
+        time.sleep(2)
+
     check(
+
         f"/events/history finds real, known-existing comm '{real_comm}'",
-        hist.get("total", 0) > 0,
-        f"total={hist.get('total')} (this is the exact check that would have caught tonight's timestamp bug)",
+
+        total > 0,
+
+        f"total={total} after up to 5 retries (tolerates real Parquet-flush lag, still fails if genuinely broken)",
+
+
     )
 
 

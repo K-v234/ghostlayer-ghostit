@@ -12,6 +12,7 @@ import logging
 import argparse
 import urllib.request
 import urllib.parse
+import redis
 
 # Simulation Engine: caches each entity's most recent prediction, so
 # a later detection on the same entity can check whether reality
@@ -150,13 +151,61 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+
+_GHOST_INTERNAL_SECRET = os.environ.get("GHOST_INTERNAL_SECRET", "")
+
+# Global default opener: attaches X-Internal-Auth to every request made
+
+# via urllib.request.urlopen() anywhere in this file, including the many
+
+# scattered inline Request(...) calls above and below -- one fix instead
+
+# of eleven individually risky edits across call sites with different
+
+# shapes (bare url strings, POST Requests, GET Requests).
+
+_opener = urllib.request.build_opener()
+
+_opener.addheaders = [("X-Internal-Auth", _GHOST_INTERNAL_SECRET)]
+
+urllib.request.install_opener(_opener)
+
+
+# Global default opener: attaches X-Internal-Auth to every request made
+
+# via urllib.request.urlopen() anywhere in this file, including the many
+
+# scattered inline Request(...) calls above and below -- one fix instead
+
+# of eleven individually risky edits across call sites with different
+
+# shapes (bare url strings, POST Requests, GET Requests).
+
+_opener = urllib.request.build_opener()
+
+_opener.addheaders = [("X-Internal-Auth", _GHOST_INTERNAL_SECRET)]
+
+urllib.request.install_opener(_opener)
+
+
+
+
 def api_get(url: str) -> dict:
+
     try:
-        with urllib.request.urlopen(url, timeout=15) as r:
+
+        req = urllib.request.Request(url, headers={"X-Internal-Auth": _GHOST_INTERNAL_SECRET})
+
+        with urllib.request.urlopen(req, timeout=15) as r:
+
             return json.loads(r.read())
+
     except Exception as ex:
+
         log.error(f"API error {url}: {ex}")
+
         return {}
+
 
 
 def send_to_pipeline(detections: list, host: str, port: int):
@@ -284,6 +333,45 @@ class DetectionEngine:
         self._PID_CACHE_MAX = 5000
         self._entropy_monitor = FileEntropyMonitor(pipeline_host=pipeline_host, pipeline_port=pipeline_port)
         self._entropy_monitor.start()
+
+        # Week 2: Redis Streams as a low-latency trigger, not a replacement
+
+        # for _fetch_new's HTTP polling. If Redis is unreachable, self._redis
+
+        # stays None and run() falls back to the exact old sleep(poll)
+
+        # behavior -- this must never become a hard dependency.
+
+        redis_host = os.environ.get("GHOST_REDIS_HOST", "redis")
+
+        redis_port = int(os.environ.get("GHOST_REDIS_PORT", "6379"))
+
+        try:
+
+            self._redis = redis.Redis(host=redis_host, port=redis_port, decode_responses=True, socket_connect_timeout=2)
+
+            self._redis.ping()
+
+            for stream in ("ghost:events:critical", "ghost:events:standard"):
+
+                try:
+
+                    self._redis.xgroup_create(stream, "detection-engine", id="$", mkstream=True)
+
+                except redis.exceptions.ResponseError as e:
+
+                    if "BUSYGROUP" not in str(e):
+
+                        raise
+
+            log.info("Redis Streams trigger connected -- polling loop will wake on new events instead of blind sleep")
+
+        except Exception as ex:
+
+            self._redis = None
+
+            log.warning(f"Redis unavailable, falling back to plain poll interval: {ex}")
+
         log.info("C15 FileEntropyMonitor started")
         log.info(f"Engine ready — starting at offset {self.last_offset}")
 
@@ -643,22 +731,81 @@ class DetectionEngine:
 
         return len(unique)
 
+
+    def _wait_for_trigger(self):
+
+        """Blocks until either Redis signals a new event, or self.poll
+
+        seconds elapse -- whichever comes first. Falls back to a plain
+
+        sleep if Redis isn't connected. Never raises; any Redis error
+
+        here just means we fall through to the timer, same as before."""
+
+        if self._redis is None:
+
+            time.sleep(self.poll)
+
+            return
+
+        try:
+
+            self._redis.xreadgroup(
+
+                "detection-engine", "engine-main",
+
+                {"ghost:events:critical": ">", "ghost:events:standard": ">"},
+
+                count=1, block=self.poll * 1000
+
+            )
+
+            # We don't process the Redis payload directly here -- _fetch_new's
+
+            # HTTP-based fetch (with its cursor-reset detection and
+
+            # supplemental fetches) remains the single source of truth for
+
+            # what gets processed. Redis here is purely a wakeup signal.
+
+        except Exception as ex:
+
+            log.warning(f"Redis wait failed, falling back to sleep: {ex}")
+
+            time.sleep(self.poll)
+
     def run(self):
+
         log.info(f"Running — poll={self.poll}s window={self.window}s")
+
         total = 0
+
         while True:
+
             try:
+
                 n = self.run_once()
+
                 total += n
+
                 if n:
+
                     log.info(f"Cycle done — {n} detections (total: {total})")
-                time.sleep(self.poll)
+
+                self._wait_for_trigger()
+
             except KeyboardInterrupt:
+
                 log.info(f"Stopped — total: {total}")
+
                 break
+
             except Exception as ex:
+
                 import traceback; log.error(f"Engine error: {ex}\n{traceback.format_exc()}")
+
                 time.sleep(self.poll)
+
 
 
 def main():

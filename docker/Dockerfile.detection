@@ -4,7 +4,7 @@ COPY detection/ ./detection/
 COPY alert-engine/ ./alert-engine/
 COPY detectors/ ./detectors/
 COPY causal-engine/ ./causal-engine/
-RUN pip install --no-cache-dir requests duckdb pytz numpy scikit-learn
+RUN pip install --no-cache-dir requests duckdb pytz numpy scikit-learn redis
 ENV CHAIN_STATE_PATH=/data/chain_state.json
 ENV INCIDENTS_DB_PATH=/data/ghostit_incidents.duckdb
 ENV CORTEX_DB_PATH=/data/cortex.duckdb
