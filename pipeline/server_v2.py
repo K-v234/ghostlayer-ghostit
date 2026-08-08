@@ -163,24 +163,225 @@ def flush_to_parquet(events):
     pq.write_table(table, tmp_path, compression="snappy", row_group_size=10_000)
     os.replace(tmp_path, path)
 
-def _flush_loop():
-    last_flush = time.monotonic()
-    while True:
-        time.sleep(1)
-        now = time.monotonic()
-        with _flush_lock:
-            count = len(_flush_pending)
-        if count >= FLUSH_COUNT or (now - last_flush) >= FLUSH_INTERVAL:
-            with _flush_lock:
-                batch = list(_flush_pending)
-                _flush_pending.clear()
-            if batch:
+
+
+# ------------------------------------------------------------------ #
+
+# Write-Ahead Log for the hot buffer (R-04 fix)                       #
+
+# Events are appended here BEFORE being added to _flush_pending, so   #
+
+# a crash between insert and the next Parquet flush (up to           #
+
+# FLUSH_INTERVAL=300s) doesn't silently lose data. Truncated after    #
+
+# each successful flush; replayed into a recovery Parquet file on     #
+
+# startup if anything's left over from an unclean shutdown.           #
+
+# ------------------------------------------------------------------ #
+
+_WAL_LOCK = threading.Lock()
+
+_WAL_PATH = None  # set in main()
+
+
+
+def _wal_path() -> str:
+
+    global _WAL_PATH
+
+    if _WAL_PATH is None:
+
+        _WAL_PATH = os.path.join(PARQUET_DIR or "/tmp", "hot_buffer.wal")
+
+    return _WAL_PATH
+
+
+
+def wal_append(events):
+
+    if not events:
+
+        return
+
+    try:
+
+        with _WAL_LOCK:
+
+            with open(_wal_path(), "a") as f:
+
+                for e in events:
+
+                    f.write(json.dumps(e, default=str) + "\n")
+
+    except Exception as ex:
+
+        log.error(f"WAL append failed -- events NOT durably persisted: {ex}")
+
+
+
+
+def wal_size() -> int:
+
+    try:
+
+        return os.path.getsize(_wal_path())
+
+    except Exception:
+
+        return 0
+
+
+
+def wal_trim_to(offset: int):
+
+    """Removes only the first `offset` bytes of the WAL -- anything
+
+    appended after that offset (i.e. after the flush snapshot was
+
+    taken) is preserved, since those events aren't in Parquet yet."""
+
+    try:
+
+        with _WAL_LOCK:
+
+            path = _wal_path()
+
+            if not os.path.exists(path):
+
+                return
+
+            with open(path, "rb") as f:
+
+                f.seek(offset)
+
+                remainder = f.read()
+
+            if remainder:
+
+                tmp = path + ".trim"
+
+                with open(tmp, "wb") as f:
+
+                    f.write(remainder)
+
+                os.replace(tmp, path)
+
+            else:
+
+                os.remove(path)
+
+    except Exception as ex:
+
+        log.warning(f"WAL trim failed: {ex}")
+
+
+
+def wal_recover():
+
+    """Called once at startup. Replays any leftover WAL entries from an
+
+    unclean shutdown directly into a dedicated recovery Parquet file,
+
+    so nothing is lost even if the process died before the normal
+
+    flush cycle ran."""
+
+    path = _wal_path()
+
+    if not os.path.exists(path):
+
+        return 0
+
+    events = []
+
+    try:
+
+        with open(path) as f:
+
+            for line in f:
+
+                line = line.strip()
+
+                if not line:
+
+                    continue
+
                 try:
+
+                    events.append(json.loads(line))
+
+                except Exception:
+
+                    continue
+
+    except Exception as ex:
+
+        log.error(f"WAL read failed during recovery: {ex}")
+
+        return 0
+
+    if events:
+
+        try:
+
+            flush_to_parquet(events)
+
+            log.warning(f"WAL recovery: replayed {len(events)} events lost from previous session into Parquet")
+
+        except Exception as ex:
+
+            log.error(f"WAL recovery flush failed: {ex}")
+
+            return 0
+
+    wal_trim_to(wal_size())
+
+    return len(events)
+
+
+
+def _flush_loop():
+
+    last_flush = time.monotonic()
+
+    while True:
+
+        time.sleep(1)
+
+        now = time.monotonic()
+
+        with _flush_lock:
+
+            count = len(_flush_pending)
+
+        if count >= FLUSH_COUNT or (now - last_flush) >= FLUSH_INTERVAL:
+
+            with _flush_lock:
+
+                batch = list(_flush_pending)
+
+                _flush_pending.clear()
+
+                wal_trim_offset = wal_size()
+
+            if batch:
+
+                try:
+
                     flush_to_parquet(batch)
+
                     log.info(f"Parquet flush: {len(batch)} events")
+
+                    wal_trim_to(wal_trim_offset)
+
                 except Exception as ex:
+
                     log.error(f"Parquet flush error: {ex}")
+
             last_flush = time.monotonic()
+
 
 # Ghost IT trusted process paths — events from these are never scored
 # Identified by /proc/PID/cmdline at deploy time — survives restarts unlike PID-based exclusion
@@ -290,6 +491,7 @@ def insert_batch(events):
             buf = HOST_BUFFERS.get(host, HOST_BUFFERS["linux"])
             buf.append(e)
     with _flush_lock:
+        wal_append(enriched)
         _flush_pending.extend(enriched)
     return len(enriched)
 
@@ -1748,6 +1950,9 @@ def main():
     PARQUET_DIR = args.parquet_dir
     LEGACY_DB = args.legacy_db if os.path.exists(args.legacy_db) else None
     os.makedirs(PARQUET_DIR, exist_ok=True)
+    recovered = wal_recover()
+    if recovered:
+        log.warning(f"Startup WAL recovery: {recovered} events recovered from previous session")
     if LEGACY_DB:
         try:
             conn = duckdb.connect(LEGACY_DB, read_only=True)
