@@ -37,6 +37,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+    healthcheck:
+
+
+
+
+      test: ["CMD-SHELL", "grep -qla canary/server.py /proc/[0-9]*/cmdline 2>/dev/null || exit 1"]
+
+
+
+
+      interval: 15s
+
+      timeout: 5s
+
+      retries: 5
+
+      start_period: 10s
+
+
   detection:
     build:
       context: .
@@ -48,6 +67,23 @@ services:
       pipeline:
         condition: service_healthy
     restart: unless-stopped
+
+    healthcheck:
+
+
+
+      test: ["CMD-SHELL", "grep -qla detection/engine.py /proc/[0-9]*/cmdline 2>/dev/null || exit 1"]
+
+
+
+      interval: 15s
+
+      timeout: 5s
+
+      retries: 5
+
+      start_period: 10s
+
   causal-engine:
     build:
       context: .
@@ -59,6 +95,23 @@ services:
       pipeline:
         condition: service_healthy
     restart: unless-stopped
+
+    healthcheck:
+
+
+
+      test: ["CMD-SHELL", "grep -qla causal-engine/ensemble.py /proc/[0-9]*/cmdline 2>/dev/null || exit 1"]
+
+
+
+      interval: 15s
+
+      timeout: 5s
+
+      retries: 5
+
+      start_period: 10s
+
 
   dashboard-api:
     build:
@@ -78,6 +131,19 @@ services:
       pipeline:
         condition: service_healthy
     restart: unless-stopped
+
+    healthcheck:
+
+      test: ["CMD", "python3", "-c",
+
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health')"]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 5
+
   dashboard:
     build:
       context: .
@@ -89,7 +155,15 @@ services:
       - REACT_APP_API_URL=http://13.205.24.55:8000
       - REACT_APP_DASHBOARD_API_URL=http://13.205.24.55:8001
     depends_on:
-      - pipeline
+
+      pipeline:
+
+        condition: service_healthy
+
+      dashboard-api:
+
+        condition: service_healthy
+
     restart: unless-stopped
 
   prometheus:

@@ -49,6 +49,15 @@ app.add_middleware(CORSMiddleware,
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
     expose_headers=["Last-Event-ID"])
 
+
+
+@app.get("/api/health")
+
+def health_check():
+
+    return {"status": "ok"}
+
+
 _build = os.path.expanduser("~/ghostlayer/dashboard/frontend/build")
 if os.path.isdir(_build):
     app.mount("/app", StaticFiles(directory=_build, html=True), name="frontend")
