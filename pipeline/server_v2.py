@@ -1321,19 +1321,42 @@ def events_history(
 
             return {"total": 0, "events": [], "note": "no historical parquet data yet"}
 
+
         cutoff_sec = int(time.time() - days_back * 86400)
 
-        conditions = [f"received_at >= {cutoff_sec}"]
+        conditions = ["received_at >= ?"]
 
-        if min_score: conditions.append(f"score >= {min_score}")
+        params = [cutoff_sec]
 
-        if event_type: conditions.append(f"(type = \'{event_type}\' OR event_type = \'{event_type}\')")
+        if min_score:
 
-        if customer_id: conditions.append(f"customer_id = \'{customer_id}\'")
+            conditions.append("score >= ?")
 
-        if comm_pattern: conditions.append(f"comm ILIKE \'%{comm_pattern}%\'")
+            params.append(min_score)
 
-        if file_pattern: conditions.append(f"file ILIKE '%{file_pattern}%'")
+        if event_type:
+
+            conditions.append("(type = ? OR event_type = ?)")
+
+            params.append(event_type); params.append(event_type)
+
+        if customer_id:
+
+            conditions.append("customer_id = ?")
+
+            params.append(customer_id)
+
+        if comm_pattern:
+
+            conditions.append("comm ILIKE ?")
+
+            params.append(f"%{comm_pattern}%")
+
+        if file_pattern:
+
+            conditions.append("file ILIKE ?")
+
+            params.append(f"%{file_pattern}%")
 
         where_clause = " AND ".join(conditions)
 
@@ -1345,11 +1368,14 @@ def events_history(
 
             ORDER BY ts DESC
 
-            LIMIT {limit}
+            LIMIT ?
 
         """
 
-        df = conn.execute(query).fetchdf()
+        params.append(limit)
+
+        df = conn.execute(query, params).fetchdf()
+
 
         events = df_to_json(df)
 
@@ -1734,6 +1760,37 @@ def main():
             log.warning(f"Legacy DB seed failed: {ex}")
     log.info(f"Parquet dir: {PARQUET_DIR}")
     log.info(f"Legacy DB: {LEGACY_DB or 'none'}")
+
+    if EVENT_SEQ == 0:
+
+        try:
+
+            has_parquet_files = any(True for _ in pathlib.Path(PARQUET_DIR).rglob("*.parquet"))
+
+            if has_parquet_files:
+
+                seed_conn = duckdb.connect(":memory:")
+
+                parquet_glob = os.path.join(PARQUET_DIR, "**/*.parquet")
+
+                row = seed_conn.execute(
+
+                    f'SELECT MAX(id) FROM read_parquet("{parquet_glob}", hive_partitioning=false)'
+
+                ).fetchone()
+
+                if row and row[0]:
+
+                    EVENT_SEQ = int(row[0]) + 1
+
+                    log.info(f"Event ID seeded from Parquet: {EVENT_SEQ}")
+
+                seed_conn.close()
+
+        except Exception as ex:
+
+            log.warning(f"Parquet-based event ID seed failed: {ex}")
+
     threading.Thread(target=_flush_loop, daemon=True).start()
     threading.Thread(target=_retention_cleanup, daemon=True).start()
     threading.Thread(target=run_tcp_server, args=(args.tcp_host, args.tcp_port), daemon=True).start()
