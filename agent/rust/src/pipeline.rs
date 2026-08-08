@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 use std::path::PathBuf;
 use tokio::fs::{OpenOptions, File};
 use tokio::io::AsyncReadExt;
+use tokio_rustls::client::TlsStream;
 
 struct DurableOutbox {
     path: PathBuf,
@@ -51,7 +52,7 @@ pub struct PipelineForwarder {
     batch_size:       usize,
     flush_interval_ms: u64,
     batch:            Arc<Mutex<Vec<Value>>>,
-    stream:           Arc<Mutex<Option<TcpStream>>>,
+    stream:           Arc<Mutex<Option<TlsStream<TcpStream>>>>,
     outbox:           Arc<DurableOutbox>,
     customer_id:      String,
     api_key:          String,
@@ -91,7 +92,7 @@ impl PipelineForwarder {
     }
 
     async fn connect(&self) {
-        match TcpStream::connect(format!("{}:{}", self.host, self.port)).await {
+        match crate::tls_pin::connect(&self.host, self.port).await {
             Ok(mut s) => {
                 let auth_line = format!("{}\n", self.api_key);
                 if let Err(e) = s.write_all(auth_line.as_bytes()).await {
@@ -158,7 +159,7 @@ impl PipelineForwarder {
                         }
                     }
                 } else {
-                    match TcpStream::connect(format!("{}:{}", host, port)).await {
+                    match crate::tls_pin::connect(&host, port).await {
                         Ok(mut conn) => {
                             info!("Pipeline reconnected");
                             let ok = conn.write_all(pending.as_bytes()).await.is_ok();

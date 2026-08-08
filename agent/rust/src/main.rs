@@ -6,6 +6,7 @@
 //! Ghost Layer Technologies — CONFIDENTIAL
 
 mod hybrid_sign;
+mod tls_pin;
 use anyhow::Result;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -28,6 +29,10 @@ async fn main() -> Result<()> {
         .with_thread_ids(false)
         .json()
         .init();
+
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls crypto provider");
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
