@@ -467,6 +467,33 @@ app = FastAPI(title="Ghost IT Pipeline v2", version="2.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["GET"], allow_headers=["*"])
 
+
+
+INTERNAL_SECRET = os.environ.get("GHOST_INTERNAL_SECRET")
+
+if not INTERNAL_SECRET:
+
+    raise RuntimeError("GHOST_INTERNAL_SECRET not set -- refusing to start without internal auth")
+
+
+
+PUBLIC_PATHS = {"/health", "/metrics"}
+
+
+
+@app.middleware("http")
+
+async def require_internal_auth(request, call_next):
+
+    if request.url.path not in PUBLIC_PATHS:
+
+        if request.headers.get("X-Internal-Auth") != INTERNAL_SECRET:
+
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    return await call_next(request)
+
+
 @app.get("/metrics")
 def metrics_endpoint():
     """

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
 const API      = (process.env.REACT_APP_DASHBOARD_API_URL || "http://localhost:8001") + "/api";
-const PIPELINE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const PIPELINE = API + "/pipeline";
 
 function Login({ onLogin }) {
   const [user, setUser] = useState("admin");
@@ -107,7 +107,7 @@ function useAuthFetch(token, url, interval = 10000) {
 function usePipeline(path, interval = 15000) {
   const [data, setData] = useState(null);
   const fetch_ = useCallback(() => {
-    fetch(`${PIPELINE}${path}`).then(r => r.json()).then(setData).catch(() => {});
+    fetch(`${PIPELINE}${path}`, { headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } }).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(setData).catch(() => {});
   }, [path]);
   useEffect(() => { fetch_(); const id = setInterval(fetch_, interval); return () => clearInterval(id); }, [fetch_, interval]);
   return data;
@@ -263,7 +263,7 @@ function RollbackAction({ filepath }) {
   const [result, setResult] = useState(null);
   const doRollback = () => {
     setStatus("running");
-    fetch(PIPELINE + "/rollback?affected_paths=" + encodeURIComponent(filepath), { method: "POST" })
+    fetch(PIPELINE + "/rollback?affected_paths=" + encodeURIComponent(filepath), { method: "POST", headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } })
       .then(r => r.json())
       .then(res => { setResult(res); setStatus("done"); })
       .catch(() => setStatus("error"));
@@ -556,7 +556,7 @@ function CausalIntelligence({ token }) {
   const [analysis, setAnalysis] = useState({});
   const [loading,  setLoading]  = useState({});
   useEffect(() => {
-    const f = () => fetch(PIPELINE + "/chains").then(r => r.json()).then(d => setChains(d.chains || [])).catch(() => {});
+    const f = () => fetch(PIPELINE + "/chains", { headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } }).then(r => r.json()).then(d => setChains(d.chains || [])).catch(() => {});
     f(); const id = setInterval(f, 10000); return () => clearInterval(id);
   }, []);
   const analyze = async (chain) => {
@@ -669,7 +669,7 @@ function ExplainabilityPanel() {
   const lookup = () => {
     if (!pid) return;
     setLoading(true);
-    fetch(`${PIPELINE}/explain/${pid}`)
+    fetch(`${PIPELINE}/explain/${pid}`, { headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } })
       .then(r => r.json())
       .then(setNarrative)
       .catch(() => setNarrative(null))
@@ -739,7 +739,7 @@ function GuidedResponsePanel() {
   const [ruleId, setRuleId] = useState("C15_RANSOMWARE");
   const [guidance, setGuidance] = useState(null);
   const lookup = () => {
-    fetch(`${PIPELINE}/guided-action/${ruleId}?score=90`).then(r => r.json()).then(setGuidance).catch(() => {});
+    fetch(`${PIPELINE}/guided-action/${ruleId}?score=90`, { headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } }).then(r => r.json()).then(setGuidance).catch(() => {});
   };
   useEffect(() => { lookup(); /* eslint-disable-next-line */ }, []);
   return (
@@ -772,7 +772,7 @@ function IdentityRiskPanel() {
   const check = () => {
     if (!username) return;
     const params = new URLSearchParams({ username, login_hour: hour, is_new_device: newDevice, mfa_used: mfa });
-    fetch(PIPELINE + "/identity-risk?" + params.toString()).then(r => r.json()).then(setResult).catch(() => {});
+    fetch(PIPELINE + "/identity-risk?" + params.toString(), { headers: { Authorization: `Bearer ${localStorage.getItem("ghost_token") || ""}` } }).then(r => r.json()).then(setResult).catch(() => {});
   };
   return (
     <div className="panel">

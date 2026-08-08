@@ -24,7 +24,22 @@ logging.basicConfig(level=logging.INFO,
 
 EVENTS_DB    = os.path.expanduser("~/ghostlayer/data/events.db")
 INCIDENT_DB  = os.path.expanduser("~/ghostlayer/data/ghostit_incidents.duckdb")
-PIPELINE_API = "http://127.0.0.1:8000"
+PIPELINE_API = os.environ.get("PIPELINE_API", "http://127.0.0.1:8000")
+
+INTERNAL_SECRET = os.environ.get("GHOST_INTERNAL_SECRET", "")
+
+
+
+def _pipeline_urlopen(url, timeout=5):
+
+    req = _ur.Request(url, headers={"X-Internal-Auth": INTERNAL_SECRET})
+
+    return _ur.urlopen(req, timeout=timeout)
+
+
+
+
+
 
 NOISE_COMMS   = {"ghost-agent", "ghostit-agent-l", "ghost-agent-lin", ""}
 NOISE_REASONS = {"file_close_write", "file_modify", "file_close_read"}
@@ -119,7 +134,7 @@ async def logout(session=Depends(_verify_session),
 
 def _fetch_alerts(limit: int = 50) -> list[dict]:
     try:
-        with _ur.urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=3) as r:
+        with _pipeline_urlopen(f"{PIPELINE_API}/alerts?limit={limit}", timeout=3) as r:
             data = json.loads(r.read())
         cutoff = int(time.time()) - 86400
         return [
@@ -289,7 +304,7 @@ def get_incidents(limit: int = 50, session=Depends(_verify_session)):
 @app.get("/api/endpoints")
 def get_endpoints(session=Depends(_verify_session)):
     try:
-        with _ur.urlopen(f"{PIPELINE_API}/top/detailed?limit=50", timeout=5) as r:
+        with _pipeline_urlopen(f"{PIPELINE_API}/top/detailed?limit=50", timeout=5) as r:
             data = json.loads(r.read())
         procs = data.get("processes", [])
         return {"total": len(procs), "endpoints": [
@@ -305,7 +320,7 @@ def get_endpoints(session=Depends(_verify_session)):
 @app.get("/api/stats")
 def get_stats(session=Depends(_verify_session)):
     try:
-        with _ur.urlopen(f"{PIPELINE_API}/stats", timeout=5) as r:
+        with _pipeline_urlopen(f"{PIPELINE_API}/stats", timeout=5) as r:
             pipeline_stats = json.loads(r.read())
     except Exception:
         pipeline_stats = {}
@@ -444,6 +459,48 @@ async def causal_analyze(request: Request, session=Depends(_verify_session)):
 
     return {"analysis": analysis}
 
+
+
+
+# Generic pipeline proxy — frontend calls this instead of pipeline directly,
+
+# so the internal auth secret never has to live in browser JS.
+
+ALLOWED_PIPELINE_PATHS = {"rollback", "chains", "explain", "guided-action", "identity-risk", "timeline", "stats", "cortex", "insurance-report"}
+
+
+
+@app.api_route("/api/pipeline/{path:path}", methods=["GET", "POST"])
+
+def pipeline_proxy(path: str, request: Request, session=Depends(_verify_session)):
+
+    base_path = path.split("/")[0]
+
+    if base_path not in ALLOWED_PIPELINE_PATHS:
+
+        raise HTTPException(status_code=404, detail="unknown pipeline path")
+
+    query = request.url.query
+
+    url = f"{PIPELINE_API}/{path}" + (f"?{query}" if query else "")
+
+    req = _ur.Request(url, headers={"X-Internal-Auth": INTERNAL_SECRET}, method=request.method)
+
+    try:
+
+        with _ur.urlopen(req, timeout=5) as r:
+
+            return json.loads(r.read())
+
+    except Exception as e:
+
+        raise HTTPException(status_code=502, detail=f"pipeline call failed: {e}")
+
+
+
 if __name__ == "__main__":
+
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
+
