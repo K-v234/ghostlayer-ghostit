@@ -25,6 +25,7 @@ agent/rust/src/*.bak
 models/
 data/parquet/
 data/ghostit_incidents.duckdb
+data/*.duckdb
 ghostit_incidents.duckdb
 data/audit_reports/
 agent/ebpf/vmlinux.h
