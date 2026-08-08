@@ -140,6 +140,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), '..'
 from detectors.lolbin_detector import LOLBinDetector
 from detectors.exfiltration_detector import ExfiltrationDetector
 from detectors.identity_detector import IdentityDetector
+from detectors.mitre_gap_detectors import (
+    check_t1027_obfuscated_execution, check_t1070_indicator_removal,
+    check_t1059_command_interpreter_abuse, check_t1055_process_injection,
+    check_t1547_persistence, check_t1003_credential_dumping,
+    check_t1490_inhibit_recovery,
+)
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -647,6 +653,67 @@ class DetectionEngine:
                 else:
 
                     _observe_threshold("C10_identity_travel", 0)
+
+                # MITRE gap coverage — 7 previously-unwired technique
+
+                # detectors (T1027/T1070/T1059/T1055/T1547/T1003/T1490).
+
+                # Two others (T1105 ingress-tool-transfer, T1110 brute
+
+                # force) need fields/state not currently captured on a
+
+                # single event (url field, cross-event failure counting)
+
+                # -- genuinely deferred, not silently skipped.
+
+                _mitre_confidence = {"critical": 95, "high": 80, "medium": 60}
+
+                _cmdline = f"{e_comm} {e.get('args', '') or ''}"
+
+                _mg_checks = [
+
+                    check_t1027_obfuscated_execution(e_comm, e.get("args", "") or ""),
+
+                    check_t1070_indicator_removal(_cmdline),
+
+                    check_t1059_command_interpreter_abuse(_cmdline),
+
+                    check_t1055_process_injection(_cmdline),
+
+                    check_t1547_persistence(e.get("file", "") or ""),
+
+                    check_t1003_credential_dumping(_cmdline),
+
+                    check_t1490_inhibit_recovery(_cmdline),
+
+                ]
+
+                for _mg in _mg_checks:
+
+                    if _mg:
+
+                        _mg_conf = _mitre_confidence.get(_mg.severity, 60)
+
+                        detections.append(Detection(
+
+                            rule_id     = f"MITRE_{_mg.technique_id}",
+
+                            severity    = _mg.severity,
+
+                            title       = f"{_mg.technique_id}: {_mg.technique_name}",
+
+                            description = _mg.reason,
+
+                            confidence  = _mg_conf,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, f"mitre_{_mg.technique_id}", _mg.reason[:100])
+
+                        _observe_threshold(f"mitre_{_mg.technique_id}", _mg_conf)
+
 
                 l = self._lolbin.check_event(e)
                 if l:
