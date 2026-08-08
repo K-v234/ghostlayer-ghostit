@@ -190,6 +190,7 @@ urllib.request.install_opener(_opener)
 
 
 
+
 def api_get(url: str) -> dict:
 
     try:
@@ -205,6 +206,30 @@ def api_get(url: str) -> dict:
         log.error(f"API error {url}: {ex}")
 
         return {}
+
+
+
+# LOLBin severity -> confidence: was hardcoded to 85 regardless of
+
+# whether the matched pattern was CRITICAL (WMIC remote exec) or
+
+# MEDIUM (vim editor breakout) -- real evidence strength should
+
+# differ. Not a full evidence-model conversion (that's a bigger,
+
+# separately-scoped task) -- this specifically fixes the fake
+
+# constant with a real value derived from what actually matched.
+
+_LOLBIN_SEVERITY_CONFIDENCE = {"CRITICAL": 95, "HIGH": 75, "MEDIUM": 50}
+
+
+
+def lolbin_confidence(severity: str) -> int:
+
+    return _LOLBIN_SEVERITY_CONFIDENCE.get(severity, 60)
+
+
 
 
 
@@ -505,7 +530,7 @@ class DetectionEngine:
                             severity    = chain_alert.severity,
                             title       = f"Suspicious process chain: {chain_alert.technique}",
                             description = f"{parent_comm} -> {e_comm} matches known attack pattern",
-                            confidence  = 85,
+                            confidence  = lolbin_confidence(chain_alert.severity),
                             evidence    = [e],
                         ))
                         _feed_cortex(e_pid, "C14_lolbin", f"chain:{parent_comm}->{e_comm}")
@@ -565,11 +590,11 @@ class DetectionEngine:
                         severity    = l.severity,
                         title       = f"LOLBin: {l.technique}",
                         description = f"Living-off-the-land binary abuse detected",
-                        confidence  = 85,
+                        confidence  = lolbin_confidence(l.severity),
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C14_lolbin", l.technique)
-                    _observe_threshold("C14_lolbin", 85)
+                    _observe_threshold("C14_lolbin", lolbin_confidence(l.severity))
                 else:
                     _observe_threshold("C14_lolbin", 0)
                 # C20: Insider Threat / Bulk Exfiltration
