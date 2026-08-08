@@ -88,6 +88,8 @@ enum event_type {
 
     /* NEW — perf abuse */
     EVENT_PERF_OPEN  = 47,
+    /* NEW — DNS query capture, for C14 DNS/DGA analysis */
+    EVENT_DNS_QUERY  = 48,
 
 };
 

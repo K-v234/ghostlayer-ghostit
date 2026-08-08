@@ -720,6 +720,85 @@ int handle_write(struct trace_event_raw_sys_enter *ctx)
 /* NETWORK — sendto, recvfrom, sendmsg, recvmsg                      */
 /* ================================================================== */
 
+
+
+
+/* ================================================================== */
+
+/* DNS QUERY CAPTURE — for C14 DNS/DGA analysis                        */
+
+/* Parses the QNAME out of a DNS query written via sendto() to a UDP   */
+
+/* socket on port 53. Real, bounded, verifier-safe parsing: reads a    */
+
+/* fixed 128-byte window of the payload into a stack buffer first (no  */
+
+/* unbounded user-memory access), then walks it with a fixed, unrolled */
+
+/* loop (max 16 labels) reconstructing "label.label.label" into        */
+
+/* e->path. Truncates cleanly on anything malformed or too long rather */
+
+/* than risk any out-of-bounds read under the verifier.                */
+
+/* ================================================================== */
+
+#define DNS_BUF_LEN 128
+
+static __always_inline void try_parse_dns_query(struct ghost_event *e, const void *payload, __u64 paylen)
+
+{
+
+    if (paylen < 13 || paylen > DNS_BUF_LEN) return; /* too small or too big for our fixed window */
+
+    char buf[DNS_BUF_LEN] = {};
+
+    if (bpf_probe_read_user(buf, DNS_BUF_LEN, payload) != 0) return;
+
+    /* DNS header is 12 bytes; QNAME starts at offset 12 */
+
+    int pos = 12;
+
+    int out = 0;
+
+    #pragma unroll
+
+    for (int label = 0; label < 16; label++) {
+
+        if (pos >= DNS_BUF_LEN - 1 || out >= 62) break;
+
+        __u8 len = (__u8)buf[pos];
+
+        if (len == 0) break;              /* end of QNAME */
+
+        if (len > 63) break;              /* invalid label length -- not real DNS, bail */
+
+        pos++;
+
+        #pragma unroll
+
+        for (int i = 0; i < 63; i++) {
+
+            if (i >= len) break;
+
+            if (pos >= DNS_BUF_LEN - 1 || out >= 62) break;
+
+            e->path[out] = buf[pos];
+
+            out++; pos++;
+
+        }
+
+        if (out < 62) { e->path[out] = '.'; out++; }
+
+    }
+
+    if (out > 0 && e->path[out-1] == '.') out--; /* trim trailing dot */
+
+    e->path[out] = '\0';
+
+}
+
 SEC("tp/syscalls/sys_enter_sendto")
 int handle_sendto(struct trace_event_raw_sys_enter *ctx)
 {
@@ -739,9 +818,45 @@ int handle_sendto(struct trace_event_raw_sys_enter *ctx)
         e->path[2] = (sa.sin_addr.s_addr >> 16) & 0xFF;
         e->path[3] = (sa.sin_addr.s_addr >> 24) & 0xFF;
     }
+
     bpf_ringbuf_submit(e, 0);
+
+    /* Separate, additional DNS-specific event -- doesn't touch the
+
+       generic sendto event above, purely additive. */
+
+    if (addr) {
+
+        struct sockaddr_in sa2 = {};
+
+        bpf_probe_read_user(&sa2, sizeof(sa2), addr);
+
+        if (__builtin_bswap16(sa2.sin_port) == 53) {
+
+            struct ghost_event *de = RESERVE(PRIORITY_STANDARD);
+
+            if (de) {
+
+                fill_common(de, EVENT_DNS_QUERY, PRIORITY_STANDARD);
+
+                const void *msg = (const void *)ctx->args[1];
+
+                __u64 msglen = (__u64)ctx->args[2];
+
+                if (msg) try_parse_dns_query(de, msg, msglen);
+
+                bpf_ringbuf_submit(de, 0);
+
+            }
+
+        }
+
+    }
+
     return 0;
+
 }
+
 
 SEC("tp/syscalls/sys_enter_recvfrom")
 int handle_recvfrom(struct trace_event_raw_sys_enter *ctx)
