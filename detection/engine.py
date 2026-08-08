@@ -146,6 +146,7 @@ from detectors.mitre_gap_detectors import (
     check_t1547_persistence, check_t1003_credential_dumping,
     check_t1490_inhibit_recovery,
 )
+from detectors.memory_exploit_detector import MemoryExploitDetector
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -359,6 +360,7 @@ class DetectionEngine:
         self._lolbin     = LOLBinDetector()
         self._exfil      = ExfiltrationDetector()
         self._identity   = IdentityDetector()
+        self._memory_exploit = MemoryExploitDetector()
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -713,6 +715,39 @@ class DetectionEngine:
                         _feed_cortex(e_pid, f"mitre_{_mg.technique_id}", _mg.reason[:100])
 
                         _observe_threshold(f"mitre_{_mg.technique_id}", _mg_conf)
+
+                # C9-lite: Memory/Exploit unified scorer
+
+                mx = self._memory_exploit.check_event(e)
+
+                if mx:
+
+                    _mx_confidence = 60 if mx.is_jit else 85
+
+                    detections.append(Detection(
+
+                        rule_id     = "C9_MEMORY_EXPLOIT",
+
+                        severity    = mx.severity,
+
+                        title       = f"Suspicious executable-memory activity: {mx.comm}",
+
+                        description = f"pid {mx.pid} ({mx.comm}) triggered {mx.count} exec-memory events in window -- {'JIT process, elevated threshold' if mx.is_jit else 'non-JIT process, real concern'}",
+
+                        confidence  = _mx_confidence,
+
+                        evidence    = [e],
+
+                    ))
+
+                    _feed_cortex(e_pid, "C9_memory_exploit", f"exec_mem_events:{mx.count}")
+
+                    _observe_threshold("C9_memory_exploit", _mx_confidence)
+
+                else:
+
+                    _observe_threshold("C9_memory_exploit", 0)
+
 
 
                 l = self._lolbin.check_event(e)

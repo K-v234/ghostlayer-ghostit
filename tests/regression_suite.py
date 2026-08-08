@@ -43,6 +43,7 @@ def test_stats():
 
 
 
+
 def test_history_endpoint_not_broken():
 
     """
@@ -57,15 +58,13 @@ def test_history_endpoint_not_broken():
 
 
 
-    /top reads the hot buffer (in-memory, instant); /events/history
+    Uses /admin/flush to force the pending event into Parquet
 
-    reads Parquet only (flushed periodically). A brand-new event can
+    immediately, rather than retrying with a short backoff and hoping
 
-    legitimately exist in /top before it's been flushed -- retry with
+    the real (up to 300s) flush timer happens to land in the window --
 
-    a short backoff to tolerate that real timing gap, not to mask a
-
-    real bug.
+    deterministic, not a timing gamble.
 
     """
 
@@ -81,29 +80,21 @@ def test_history_endpoint_not_broken():
 
     real_comm = procs[0]["comm"]
 
-    total = 0
+    requests.post(f"{PIPELINE}/admin/flush", timeout=10, headers=AUTH_HEADERS)
 
-    for attempt in range(5):
+    hist = requests.get(
 
-        hist = requests.get(
+        f"{PIPELINE}/events/history",
 
-            f"{PIPELINE}/events/history",
+        params={"days_back": 1, "comm_pattern": real_comm, "min_score": 0, "limit": 5},
 
-            params={"days_back": 1, "comm_pattern": real_comm, "min_score": 0, "limit": 5},
+        timeout=10,
 
-            timeout=10,
+        headers=AUTH_HEADERS,
 
-            headers=AUTH_HEADERS,
+    ).json()
 
-        ).json()
-
-        total = hist.get("total", 0)
-
-        if total > 0:
-
-            break
-
-        time.sleep(2)
+    total = hist.get("total", 0)
 
     check(
 
@@ -111,11 +102,9 @@ def test_history_endpoint_not_broken():
 
         total > 0,
 
-        f"total={total} after up to 5 retries (tolerates real Parquet-flush lag, still fails if genuinely broken)",
-
+        f"total={total} after forced flush (deterministic, not a timing retry)",
 
     )
-
 
 def test_metrics_endpoint():
     r = requests.get(f"{PIPELINE}/metrics", timeout=5, headers=AUTH_HEADERS)

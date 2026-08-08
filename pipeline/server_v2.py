@@ -433,6 +433,49 @@ def wal_recover():
 
 
 
+
+def force_flush() -> int:
+
+    """Flushes whatever's currently pending to Parquet immediately,
+
+    outside the normal FLUSH_COUNT/FLUSH_INTERVAL timer. Same logic
+
+    _flush_loop uses on its normal cycle -- this just triggers it
+
+    on demand. Returns the number of events flushed (0 if nothing
+
+    was pending)."""
+
+    with _flush_lock:
+
+        batch = list(_flush_pending)
+
+        _flush_pending.clear()
+
+        wal_trim_offset = wal_size()
+
+    if not batch:
+
+        return 0
+
+    try:
+
+        flush_to_parquet(batch)
+
+        log.info(f"Parquet flush: {len(batch)} events")
+
+        wal_trim_to(wal_trim_offset)
+
+        return len(batch)
+
+    except Exception as ex:
+
+        log.error(f"Parquet flush error: {ex}")
+
+        return 0
+
+
+
 def _flush_loop():
 
     last_flush = time.monotonic()
@@ -449,27 +492,7 @@ def _flush_loop():
 
         if count >= FLUSH_COUNT or (now - last_flush) >= FLUSH_INTERVAL:
 
-            with _flush_lock:
-
-                batch = list(_flush_pending)
-
-                _flush_pending.clear()
-
-                wal_trim_offset = wal_size()
-
-            if batch:
-
-                try:
-
-                    flush_to_parquet(batch)
-
-                    log.info(f"Parquet flush: {len(batch)} events")
-
-                    wal_trim_to(wal_trim_offset)
-
-                except Exception as ex:
-
-                    log.error(f"Parquet flush error: {ex}")
+            force_flush()
 
             last_flush = time.monotonic()
 
@@ -833,6 +856,23 @@ def metrics_endpoint():
         "",
     ]
     return Response(content="\n".join(lines), media_type="text/plain")
+
+
+@app.post("/admin/flush")
+
+def admin_flush():
+
+    """Force an immediate flush of pending events to Parquet, outside
+
+    the normal timer. Real operational use: confirming data landed
+
+    before an audit/export, or (as added tonight) letting tests avoid
+
+    guessing at the real flush timing."""
+
+    n = force_flush()
+
+    return {"flushed": n}
 
 @app.get("/health")
 def health():
