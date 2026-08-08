@@ -147,6 +147,7 @@ from detectors.mitre_gap_detectors import (
     check_t1490_inhibit_recovery,
 )
 from detectors.memory_exploit_detector import MemoryExploitDetector
+from detectors.doh_analyzer import DoHBehavioralAnalyzer, NetworkFlow, DOH_WHITELIST
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -361,6 +362,7 @@ class DetectionEngine:
         self._exfil      = ExfiltrationDetector()
         self._identity   = IdentityDetector()
         self._memory_exploit = MemoryExploitDetector()
+        self._doh = DoHBehavioralAnalyzer()
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -747,6 +749,69 @@ class DetectionEngine:
                 else:
 
                     _observe_threshold("C9_memory_exploit", 0)
+
+                # C14: DoH C2 detection -- only checking known DoH
+
+                # resolvers (Check 2: connection-frequency abuse). Checks
+
+                # 1 and 3 need a bytes_out/payload-size field that isn't
+
+                # captured on any event yet -- calling analyze() on a
+
+                # non-whitelisted dst_ip would spuriously fire Check 1
+
+                # (its bytes_out<1024 condition defaults to always-true
+
+                # with no real payload data), so deliberately gated to
+
+                # only the resolvers where Check 2 is the sole reachable,
+
+                # honest path.
+
+                _daddr = e.get("daddr") or ""
+
+                if _daddr in DOH_WHITELIST:
+
+                    _flow = NetworkFlow(
+
+                        src_ip=e.get("source_ip", "") or "",
+
+                        dst_ip=_daddr,
+
+                        dst_port=int(e.get("dport", 0) or 0),
+
+                    )
+
+                    doh = self._doh.analyze(_flow)
+
+                    if doh:
+
+                        _doh_confidence = int(doh.score * 100)
+
+                        detections.append(Detection(
+
+                            rule_id     = "C14_DOH",
+
+                            severity    = doh.severity.lower(),
+
+                            title       = f"DoH C2 indicator: {doh.dst_ip}",
+
+                            description = doh.reason,
+
+                            confidence  = _doh_confidence,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, "C14_doh", doh.reason[:100])
+
+                        _observe_threshold("C14_doh", _doh_confidence)
+
+                    else:
+
+                        _observe_threshold("C14_doh", 0)
+
 
 
 
