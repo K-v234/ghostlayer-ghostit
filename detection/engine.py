@@ -672,32 +672,27 @@ class DetectionEngine:
 
                 # -- genuinely deferred, not silently skipped.
 
+
                 _mitre_confidence = {"critical": 95, "high": 80, "medium": 60}
-
                 _cmdline = f"{e_comm} {e.get('args', '') or ''}"
-
-                _mg_checks = [
-
-                    check_t1027_obfuscated_execution(e_comm, e.get("args", "") or ""),
-
-                    check_t1070_indicator_removal(_cmdline),
-
-                    check_t1059_command_interpreter_abuse(_cmdline),
-
-                    check_t1055_process_injection(_cmdline),
-
-                    check_t1547_persistence(e.get("file", "") or ""),
-
-                    check_t1003_credential_dumping(_cmdline),
-
-                    check_t1490_inhibit_recovery(_cmdline),
-
+                _mg_check_fns = [
+                    lambda: check_t1027_obfuscated_execution(e_comm, e.get("args", "") or ""),
+                    lambda: check_t1070_indicator_removal(_cmdline),
+                    lambda: check_t1059_command_interpreter_abuse(_cmdline),
+                    lambda: check_t1055_process_injection(_cmdline),
+                    lambda: check_t1547_persistence(e.get("file", "") or ""),
+                    lambda: check_t1003_credential_dumping(_cmdline),
+                    lambda: check_t1490_inhibit_recovery(_cmdline),
                 ]
-
+                _mg_checks = []
+                for _mg_fn in _mg_check_fns:
+                    try:
+                        _mg_checks.append(_mg_fn())
+                    except Exception as _mg_ex:
+                        log.error(f"MITRE gap detector crashed, skipping just that technique: {_mg_ex}")
+                        _mg_checks.append(None)
                 for _mg in _mg_checks:
-
                     if _mg:
-
                         _mg_conf = _mitre_confidence.get(_mg.severity, 60)
 
                         detections.append(Detection(
