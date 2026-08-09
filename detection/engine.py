@@ -148,6 +148,7 @@ from detectors.mitre_gap_detectors import (
 )
 from detectors.memory_exploit_detector import MemoryExploitDetector
 from detectors.doh_analyzer import DoHBehavioralAnalyzer, NetworkFlow, DOH_WHITELIST
+from detectors.dns_analyzer import DNSAnalyzer
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -363,6 +364,7 @@ class DetectionEngine:
         self._identity   = IdentityDetector()
         self._memory_exploit = MemoryExploitDetector()
         self._doh = DoHBehavioralAnalyzer()
+        self._dns = DNSAnalyzer()
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -811,6 +813,50 @@ class DetectionEngine:
                     else:
 
                         _observe_threshold("C14_doh", 0)
+
+                # C14: DNS DGA/tunneling analysis -- only on real
+
+                # dns_query events (added this morning: sendmsg-based
+
+                # capture, since sendto never fires for connected UDP
+
+                # sockets that most real resolvers use).
+
+                if e.get("type") == "dns_query" and e.get("file"):
+
+                    dns_alert = self._dns.analyze_query(e.get("file", ""))
+
+                    if dns_alert:
+
+                        _dns_confidence = int(dns_alert.score * 100)
+
+                        detections.append(Detection(
+
+                            rule_id     = "C14_DNS",
+
+                            severity    = dns_alert.severity.lower(),
+
+                            title       = f"DNS threat: {dns_alert.domain}",
+
+                            description = dns_alert.reason,
+
+                            confidence  = _dns_confidence,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, "C14_dns", dns_alert.reason[:100])
+
+                        _observe_threshold("C14_dns", _dns_confidence)
+
+                    else:
+
+                        _observe_threshold("C14_dns", 0)
+
+
+                        _observe_threshold("C14_dns", 0)
+
 
 
 
