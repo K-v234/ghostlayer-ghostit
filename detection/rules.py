@@ -16,6 +16,8 @@ class Detection:
     description: str
     confidence:  int        # 0-100
     evidence:    list[dict]
+    detection_method: str = "deterministic_rule"  # deterministic_rule | statistical_ema | ml_isolation_forest | ml_graphsage | deception_trigger
+    schema_version: int = 1
 
 
 # ------------------------------------------------------------------ #

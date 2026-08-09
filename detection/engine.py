@@ -313,6 +313,7 @@ def send_to_pipeline(detections: list, host: str, port: int):
         ]
         if has_playbook:
             reasons.append("playbook:available")
+        reasons.append(f"detection_method:{getattr(d, 'detection_method', 'deterministic_rule')}")
         if tag:
             reasons += [
                 f"tactic:{tag.tactic}",
@@ -569,6 +570,7 @@ class DetectionEngine:
                         title       = f"Behavioral anomaly: {b.rationale}",
                         description = f"Behavioral AI detected anomaly — score={b.score:.2f}",
                         confidence  = int(b.score * 100),
+                        detection_method = "ml_isolation_forest",
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C2_behavioral", b.rationale)
@@ -589,6 +591,7 @@ class DetectionEngine:
                         title       = f"Ransomware EMA: {r.trigger}",
                         description = f"Ransomware behaviour detected — z_score={r.z_score:.1f}",
                         confidence  = r_confidence,
+                        detection_method = "statistical_ema",
                         evidence    = [e],
                     ))
                     _feed_cortex(e_pid, "C15_ransomware", f"{r.trigger}:z={r.z_score:.1f}")
