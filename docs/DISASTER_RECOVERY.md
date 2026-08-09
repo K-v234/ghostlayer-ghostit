@@ -65,3 +65,30 @@ from real incidents and real tests this session, not estimates.
 
 - Full-server-rebuild RTO not re-timed against today's hardened configuration.
 
+
+
+
+## Deployment log
+
+
+
+**2026-08-09** — Lab VM (192.168.154.129) agent deployed with all
+
+Week 1/2 work to date: DNS capture (real eBPF sendmsg hook), Identity
+
+detector, 7 MITRE gap detectors, MemoryExploit, DoH, LOLBin confidence
+
+fix. Also closed a real gap found during this deployment: the lab
+
+VM's agent had been running on plain TCP port 9000 since Day 1's TLS
+
+work was built -- never actually switched over. Now on port 9443
+
+with TLS, confirmed via "Connected to pipeline" log line and real
+
+event flow (total climbed from 4.58M to 5.33M+ within minutes of
+
+restart). Old binary/BPF object backed up to
+
+/opt/ghostit/backup-20260809/ on the lab VM before the swap.
+
