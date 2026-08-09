@@ -1219,6 +1219,7 @@ def temporal_memory_recurring(min_count: int = Query(2, ge=1), limit: int = Quer
     tm = TemporalMemory()
     return JSONResponse({"recurring_patterns": tm.get_recurring(min_count, limit)})
 
+
 @app.post("/cortex/contribute")
 def cortex_contribute(pid: int, pillar: str, reason: str):
     """
@@ -1232,90 +1233,19 @@ def cortex_contribute(pid: int, pillar: str, reason: str):
     public HTTP API) touches the Cortex DB directly; every other
     service now contributes via this HTTP endpoint instead of
     importing cortex.py and opening the file itself.
+    Week 2: split into three clear stages, each in its own module --
+    risk (fuse this evidence into a score), correlation (connect it
+    to the wider picture), decision (act on it). Same behavior as
+    before the split, verified via a real end-to-end call plus the
+    full regression suite.
     """
-    from cortex import Cortex, CortexContribution
-    cortex = Cortex()
-    result = cortex.contribute(CortexContribution(f"pid:{pid}", pillar, reason))
-    # Curiosity Engine: check on EVERY contribution whether this
-    # entity has entered the genuine ambiguous middle.
-    from curiosity_engine import should_investigate, build_investigation_plan
-    try:
-        if should_investigate(result["score"], result["distinct_pillars"]):
-            plan = build_investigation_plan(f"pid:{pid}", pillar, result["score"])
-            log.info(f"[Curiosity] Investigation triggered for pid:{pid}: {plan['reasoning']}")
-    except Exception as _ex_cur:
-        log.debug(f"Curiosity engine error: {_ex_cur}")
-    # World-Model: every real contribution is real evidence this
-    # entity exists and is active.
-    from world_model import WorldModel
-    try:
-        WorldModel().observe(f"pid:{pid}", "unknown", pillar, event_type="cortex_contribution")
-    except Exception as _ex_wm:
-        log.debug(f"World-model observe error: {_ex_wm}")
-    # Autonomous Response Engine: every Cortex contribution is a real
-    # opportunity for the fused score to have crossed the action
-    # threshold -- check on every contribution, not on a separate
-    # poll cycle, so decisions happen in real time as suspicion
-    # genuinely accumulates. SIMULATION MODE by default (see
-    # causal-engine/autonomous_response.py's safety design) --
-    # decisions are computed and logged, no real action taken unless
-    # GHOSTIT_AUTONOMOUS_ACTIONS_ENABLED is explicitly set.
-    try:
-        from autonomous_response import AutonomousResponseEngine
-        engine = AutonomousResponseEngine()
-        decision = engine.decide(
-            f"pid:{pid}", result["score"], result["pillars"],
-            f"triggered by new contribution from {pillar}: {reason}"
-        )
-        # Safety Governor: automatically consulted the instant a real
-        # decision is proposed, BEFORE any real action or Threat Mesh
-        # broadcast -- checks World-Model blast radius/criticality and
-        # may downgrade the proposed tier for genuine business reasons.
-        if decision.get("tier"):
-            from safety_governor import govern
-            try:
-                assessment = WorldModel().what_breaks_if_isolated(f"pid:{pid}")
-                verdict = govern(decision["tier"], decision.get("action", ""), assessment)
-                if verdict["verdict"] != "approved":
-                    log.warning(f"[Governor] Decision for pid:{pid} {verdict['verdict']}: {verdict['reasons']}")
-                    decision["governor_verdict"] = verdict
-            except Exception as _ex_gov:
-                log.debug(f"Safety governor error: {_ex_gov}")
-        # Contradiction Engine: check if this entity's pillar mix shows
-        # majority-safe contradicted by a structurally reliable pillar.
-        if result["distinct_pillars"] >= 2:
-            from contradiction_engine import detect_contradiction
-            try:
-                beliefs = {c["pillar"]: max(0, 100 - c["current_weight"]) for c in result.get("contributions", [])}
-                contradiction = detect_contradiction(beliefs)
-                if contradiction.get("contradiction_detected") and contradiction.get("severity") == "critical":
-                    log.warning(f"[Contradiction] CRITICAL contradiction for pid:{pid}: {contradiction['conclusion']}")
-            except Exception as _ex_con:
-                log.debug(f"Contradiction engine error: {_ex_con}")
-        # Threat Mesh: a real tier-2+ decision is confirmed-enough
-        # evidence to broadcast to every other connected deployment --
-        # this is the actual moment collective immunity kicks in.
-        if decision.get("tier", 0) >= 2:
-            from threat_mesh import ThreatMesh
-            import hashlib as _hashlib
-            fp = _hashlib.sha256(f"{pillar}:{reason}".lower().encode()).hexdigest()[:16]
-            ThreatMesh().broadcast_immunity(
-                origin_deployment=os.environ.get("GHOSTIT_DEPLOYMENT_ID", "unknown-deployment"),
-                fingerprint=fp, tactic="", technique="",
-                comm_pattern=pillar, resource_pattern=reason[:100],
-                confidence=result["score"],
-            )
-    except Exception as _ex:
-        log.debug(f"Autonomous response decision error: {_ex}")
-    # Active Deception: below the autonomous-action threshold but
-    # above the (deliberately lower) injection threshold, generate
-    # fresh fake data targeted at this suspicious entity -- lower
-    # risk than suspending/isolating, so it engages earlier.
-    from active_deception import ActiveDeception
-    try:
-        ActiveDeception().generate_injection(f"pid:{pid}", reason, result["score"])
-    except Exception as _ex2:
-        log.debug(f"Active deception injection error: {_ex2}")
+    from risk import compute_risk
+    from correlation import check_curiosity, observe_world_model
+    from decision import decide_and_act
+    result = compute_risk(pid, pillar, reason)
+    check_curiosity(pid, pillar, result["score"], result["distinct_pillars"])
+    observe_world_model(pid, pillar)
+    decide_and_act(pid, pillar, reason, result)
     return JSONResponse(result)
 @app.post("/worldmodel/observe")
 def worldmodel_observe(entity_id: str, host: str, comm: str, parent_id: str = Query(None), event_type: str = Query("")):
