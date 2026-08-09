@@ -88,6 +88,33 @@ struct {
 } fd_path_cache SEC(".maps");
 
 /*
+
+ * dns_fd_cache -- marks (pid,fd) pairs whose socket was connect()'d
+
+ * to port 53, so a later sendmsg()/send() on that same fd (no
+
+ * per-call address, since the socket is already connected) can be
+
+ * recognized as DNS traffic. Same packed-u64 key pattern as
+
+ * fd_path_cache above. LRU so stale entries age out automatically.
+
+ */
+
+struct {
+
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+
+    __uint(max_entries, 4096);
+
+    __type(key,   __u64);
+
+    __type(value, __u8);
+
+} dns_fd_cache SEC(".maps");
+
+
+/*
  * openat_staging -- temporary PID->path bridge between
  * sys_enter_openat (has the path, not the fd yet) and
  * sys_exit_openat (has the real fd, not the path -- only the
@@ -597,6 +624,17 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
         e->path[3] = ip_bytes[3];
         e->path[4] = (port >> 8) & 0xFF;
         e->path[5] = port & 0xFF;
+
+        if (port == 53) {
+
+            __u64 fd_key = ((__u64)(bpf_get_current_pid_tgid() >> 32) << 32) | (__u32)ctx->args[0];
+
+            __u8 mark = 1;
+
+            bpf_map_update_elem(&dns_fd_cache, &fd_key, &mark, BPF_ANY);
+
+        }
+
     }
 
     bpf_ringbuf_submit(e, 0);
@@ -871,17 +909,88 @@ int handle_recvfrom(struct trace_event_raw_sys_enter *ctx)
 }
 
 SEC("tp/syscalls/sys_enter_sendmsg")
-int handle_sendmsg(struct trace_event_raw_sys_enter *ctx)
-{
-    if (should_drop()) return 0;
-    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
-    if (!e) return 0;
-    fill_common(e, EVENT_SENDMSG, PRIORITY_STANDARD);
-    e->flags = (__u16)ctx->args[0]; /* fd */
-    bpf_ringbuf_submit(e, 0);
-    return 0;
-}
 
+int handle_sendmsg(struct trace_event_raw_sys_enter *ctx)
+
+{
+
+    if (should_drop()) return 0;
+
+    struct ghost_event *e = RESERVE(PRIORITY_STANDARD);
+
+    if (!e) return 0;
+
+    fill_common(e, EVENT_SENDMSG, PRIORITY_STANDARD);
+
+    e->flags = (__u16)ctx->args[0]; /* fd */
+
+    bpf_ringbuf_submit(e, 0);
+
+    /* Separate, additional DNS event -- only if this fd was seen
+
+       connect()'d to port 53 earlier (handle_connect marks it).
+
+       Reads struct user_msghdr by raw offset rather than a struct
+
+       definition, since msghdr/iovec aren't guaranteed present in
+
+       vmlinux.h (they're UAPI types, not always in kernel BTF) --
+
+       same defensive style already used for sockaddr_in elsewhere
+
+       in this file. Layout (x86-64 LP64 ABI):
+
+         offset 0:  void *msg_name
+
+         offset 8:  int msg_namelen (+ padding)
+
+         offset 16: struct iovec *msg_iov
+
+         offset 24: size_t msg_iovlen
+
+       struct iovec: { void *iov_base; size_t iov_len; } -- 16 bytes. */
+
+    __u64 fd_key = ((__u64)(bpf_get_current_pid_tgid() >> 32) << 32) | (__u32)ctx->args[0];
+
+    __u8 *marked = bpf_map_lookup_elem(&dns_fd_cache, &fd_key);
+
+    if (marked) {
+
+        const void *msghdr_ptr = (const void *)ctx->args[1];
+
+        __u64 msg_iov_ptr = 0;
+
+        if (bpf_probe_read_user(&msg_iov_ptr, sizeof(msg_iov_ptr), msghdr_ptr + 16) == 0 && msg_iov_ptr) {
+
+            __u64 iov_base = 0, iov_len = 0;
+
+            if (bpf_probe_read_user(&iov_base, sizeof(iov_base), (const void *)msg_iov_ptr) == 0 &&
+
+                bpf_probe_read_user(&iov_len, sizeof(iov_len), (const void *)(msg_iov_ptr + 8)) == 0 &&
+
+                iov_base) {
+
+                struct ghost_event *de = RESERVE(PRIORITY_STANDARD);
+
+                if (de) {
+
+                    fill_common(de, EVENT_DNS_QUERY, PRIORITY_STANDARD);
+
+                    try_parse_dns_query(de, (const void *)iov_base, iov_len);
+
+                    bpf_ringbuf_submit(de, 0);
+
+                }
+
+            }
+
+        }
+
+    }
+
+    return 0;
+
+}
 SEC("tp/syscalls/sys_enter_recvmsg")
 int handle_recvmsg(struct trace_event_raw_sys_enter *ctx)
 {
