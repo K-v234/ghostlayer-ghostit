@@ -755,39 +755,103 @@ def handle_client(conn, addr):
         except Exception as ex:
             stats["errors"] += 1; log.error(f"[{addr}] Flush: {ex}")
         pending.clear()
+
     try:
+
         while True:
+
             try:
+
                 chunk = conn.recv(65536)
-                if not chunk: break
+
                 buf += chunk
+
+                eof = not chunk
+
             except TimeoutError:
+
                 chunk = None
+
+                eof = False
+
             while b"\n" in buf:
+
                 line, buf = buf.split(b"\n", 1)
+
                 line = line.strip()
+
                 if not line: continue
+
                 try:
+
                     batch = json.loads(line)
+
                     if not isinstance(batch, list): batch = [batch]
+
                     # Tag each event with the connecting machine's real
+
                     # source IP -- "host" field only distinguishes
+
                     # platform (windows/linux), not individual machines,
+
                     # so multiple Windows or Linux boxes were previously
+
                     # indistinguishable in the data. source_ip gives
+
                     # genuine per-machine identity for free, using the
+
                     # TCP connection's own address, no agent-side changes needed.
+
                     for ev in batch:
+
                         ev["source_ip"] = addr[0]
+
                         ev["customer_id"] = authenticated_customer_id
+
                     pending.extend(batch)
+
                 except Exception as ex:
+
                     stats["errors"] += 1
+
+            # Real bug found and fixed: this eof check was originally
+
+            # BEFORE the buf-parsing loop above, via an immediate
+
+            # 'if not chunk: break'. A client that sends its full
+
+            # payload and closes immediately (send_to_pipeline's
+
+            # batch-then-close pattern, unlike the Rust agent's
+
+            # long-lived connection) can have its final data arrive in
+
+            # the SAME recv() that also returns EOF -- breaking before
+
+            # parsing buf silently discarded that data forever, since
+
+            # flush() in the finally block only flushes already-parsed
+
+            # `pending`, never raw `buf`. Moving the break to AFTER
+
+            # buf-parsing ensures any data that arrived alongside EOF
+
+            # still gets parsed into pending before the connection closes.
+
+            if eof:
+
+                break
+
             now = time.monotonic()
+
             if len(pending) >= BATCH_SIZE or (now - last_flush) >= FLUSH_MS:
+
                 flush(); last_flush = time.monotonic()
+
     except (ConnectionResetError, BrokenPipeError):
+
         pass
+
     finally:
         flush(); conn.close()
         log.info(f"Agent disconnected: {addr} | {stats}")

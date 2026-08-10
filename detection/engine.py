@@ -163,6 +163,7 @@ log = logging.getLogger(__name__)
 
 
 _GHOST_INTERNAL_SECRET = os.environ.get("GHOST_INTERNAL_SECRET", "")
+_GHOST_TCP_API_KEY = os.environ.get("GHOST_API_KEY", "e5fc9ef08eb9a71509e7420ea42cf8577f10da26b43d8a71")
 
 # Global default opener: attaches X-Internal-Auth to every request made
 
@@ -337,6 +338,7 @@ def send_to_pipeline(detections: list, host: str, port: int):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(2)
         s.connect((host, port))
+        s.sendall((_GHOST_TCP_API_KEY + "\n").encode())
         s.sendall((json.dumps(events) + "\n").encode())
         s.close()
         log.info(f"Forwarded {len(detections)} detections")
