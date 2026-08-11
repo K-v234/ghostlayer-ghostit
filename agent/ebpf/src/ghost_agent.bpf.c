@@ -49,6 +49,29 @@ struct {
 } standard_rb SEC(".maps");
 
 /*
+
+ * tls_hello_rb -- separate ring buffer, only for TLS ClientHello raw
+
+ * payload capture (JA4+ fingerprinting). Kept isolated from
+
+ * critical_rb/standard_rb -- see struct tls_hello_event's comment in
+
+ * ghost_agent.h for why. 2MB is generous headroom for ~1050-byte
+
+ * events under real traffic volume.
+
+ */
+
+struct {
+
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+
+    __uint(max_entries, 2 * 1024 * 1024);
+
+} tls_hello_rb SEC(".maps");
+
+
+/*
  * ghost_config — runtime tunables
  * Key 0: min_uid  (ignore UIDs below this)
  * Key 1: self_pid (ignore agent's own events)
@@ -112,6 +135,33 @@ struct {
     __type(value, __u8);
 
 } dns_fd_cache SEC(".maps");
+
+/*
+
+ * tls_fd_cache -- same pattern as dns_fd_cache, marks (pid,fd) pairs
+
+ * connect()'d to port 443, so a later sendmsg()/send() on that fd
+
+ * (no per-call address, socket already connected) can be recognized
+
+ * as potential TLS handshake traffic worth inspecting for a
+
+ * ClientHello.
+
+ */
+
+struct {
+
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+
+    __uint(max_entries, 4096);
+
+    __type(key,   __u64);
+
+    __type(value, __u8);
+
+} tls_fd_cache SEC(".maps");
+
 
 
 /*
@@ -632,6 +682,11 @@ int handle_connect(struct trace_event_raw_sys_enter *ctx)
             __u8 mark = 1;
 
             bpf_map_update_elem(&dns_fd_cache, &fd_key, &mark, BPF_ANY);
+        }
+        if (port == 443) {
+            __u64 fd_key443 = ((__u64)(bpf_get_current_pid_tgid() >> 32) << 32) | (__u32)ctx->args[0];
+            __u8 mark443 = 1;
+            bpf_map_update_elem(&tls_fd_cache, &fd_key443, &mark443, BPF_ANY);
 
         }
 
@@ -987,6 +1042,93 @@ int handle_sendmsg(struct trace_event_raw_sys_enter *ctx)
         }
 
     }
+
+    /* TLS ClientHello capture (JA4+) -- same fd-marking pattern as
+
+       DNS above, but for tls_fd_cache (port 443). Reserves directly
+
+       into tls_hello_rb sized for the ACTUAL bytes read (variable,
+
+       up to TLS_HELLO_MAX_LEN), not a fixed-size struct like
+
+       ghost_event -- this is why it needs its own reserve call
+
+       instead of the RESERVE() macro, which only handles the fixed
+
+       sizeof(struct ghost_event) case. */
+
+    __u8 *tls_marked = bpf_map_lookup_elem(&tls_fd_cache, &fd_key);
+
+    if (tls_marked) {
+
+        const void *tls_msghdr_ptr = (const void *)ctx->args[1];
+
+        __u64 tls_iov_ptr = 0;
+
+        if (bpf_probe_read_user(&tls_iov_ptr, sizeof(tls_iov_ptr), tls_msghdr_ptr + 16) == 0 && tls_iov_ptr) {
+
+            __u64 tls_iov_base = 0, tls_iov_len = 0;
+
+            if (bpf_probe_read_user(&tls_iov_base, sizeof(tls_iov_base), (const void *)tls_iov_ptr) == 0 &&
+
+                bpf_probe_read_user(&tls_iov_len, sizeof(tls_iov_len), (const void *)(tls_iov_ptr + 8)) == 0 &&
+
+                tls_iov_base && tls_iov_len >= 6) {
+
+                /* Peek first byte before committing a ring-buffer
+
+                   reservation -- only real TLS handshake records
+
+                   (content type 0x16) worth capturing. Avoids
+
+                   reserving+immediately-discarding for the vast
+
+                   majority of port-443 traffic that isn't a fresh
+
+                   ClientHello (session resumption, application data,
+
+                   etc). */
+
+                __u8 first_byte = 0;
+
+                if (bpf_probe_read_user(&first_byte, 1, (const void *)tls_iov_base) == 0 && first_byte == 0x16) {
+
+                    __u16 cap_len = (tls_iov_len > TLS_HELLO_MAX_LEN) ? TLS_HELLO_MAX_LEN : (__u16)tls_iov_len;
+
+                    struct tls_hello_event *te = bpf_ringbuf_reserve(&tls_hello_rb, sizeof(struct tls_hello_event), 0);
+
+                    if (te) {
+
+                        te->timestamp_ns = bpf_ktime_get_ns();
+
+                        te->pid = bpf_get_current_pid_tgid() >> 32;
+
+                        te->uid = bpf_get_current_uid_gid();
+
+                        bpf_get_current_comm(&te->comm, sizeof(te->comm));
+
+                        te->dst_port = 443;
+
+                        te->hello_len = cap_len;
+
+                        if (bpf_probe_read_user(te->hello, cap_len, (const void *)tls_iov_base) != 0) {
+
+                            te->hello_len = 0; /* read failed -- still submit, Rust side checks hello_len */
+
+                        }
+
+                        bpf_ringbuf_submit(te, 0);
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    }
+
 
     return 0;
 

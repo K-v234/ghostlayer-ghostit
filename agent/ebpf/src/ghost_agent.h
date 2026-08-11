@@ -111,4 +111,53 @@ struct ghost_event {
     __u8  _pad[12];
 } __attribute__((packed));
 
+
+
+
+/* ==================================================================
+
+ * TLS ClientHello capture -- SEPARATE from struct ghost_event and its
+
+ * ring buffers entirely, by design. Real ClientHello records need up
+
+ * to ~1KB of raw payload for JA4+ fingerprinting (full cipher-suite
+
+ * list, extension list, signature algorithms) -- far more than
+
+ * ghost_event's path[64] can hold, and growing that shared struct
+
+ * would affect every one of the 49 existing event types' memory
+
+ * footprint for a capability only this one hook needs. Kept fully
+
+ * isolated: own struct, own ring buffer map, own Rust reader --
+
+ * zero risk to the existing, currently-live production event path.
+
+ * ================================================================== */
+
+#define TLS_HELLO_MAX_LEN 1024
+
+
+
+struct tls_hello_event {
+
+    __u64 timestamp_ns;
+
+    __u32 pid;
+
+    __u32 uid;
+
+    char  comm[16];
+
+    __u8  dst_ip[4];
+
+    __u16 dst_port;
+
+    __u16 hello_len;              /* actual bytes captured, <= TLS_HELLO_MAX_LEN */
+
+    __u8  hello[TLS_HELLO_MAX_LEN];
+
+} __attribute__((packed));
+
 #endif /* __GHOST_AGENT_H */
