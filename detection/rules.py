@@ -102,16 +102,6 @@ def check_event(event: dict) -> Optional[Detection]:
             evidence    = [event],
         )
 
-    # R013 — Auth brute force: multiple auth_failure from same IP
-    if type_ == "auth_failure":
-        return Detection(
-            rule_id     = "R013",
-            severity    = "high",
-            title       = "SSH Auth Failure",
-            description = f"SSH auth failure for user {event.get('args','')} from {daddr}",
-            confidence  = 70,
-            evidence    = [event],
-        )
 
     # R006 — Known attacker tool executed
     if type_ == "exec" and any(t in file_ for t in

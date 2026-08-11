@@ -144,7 +144,7 @@ from detectors.mitre_gap_detectors import (
     check_t1027_obfuscated_execution, check_t1070_indicator_removal,
     check_t1059_command_interpreter_abuse, check_t1055_process_injection,
     check_t1547_persistence, check_t1003_credential_dumping,
-    check_t1490_inhibit_recovery,
+    check_t1490_inhibit_recovery, check_t1110_brute_force, T1110_WINDOW_SEC,
 )
 from detectors.memory_exploit_detector import MemoryExploitDetector
 from detectors.doh_analyzer import DoHBehavioralAnalyzer, NetworkFlow, DOH_WHITELIST
@@ -368,6 +368,7 @@ class DetectionEngine:
         self._memory_exploit = MemoryExploitDetector()
         self._doh = DoHBehavioralAnalyzer()
         self._dns = DNSAnalyzer()
+        self._t1110_failures = {}  # src_ip -> list of failure timestamps, rolling window
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
         # reused and we only need recent-enough mappings.
@@ -878,12 +879,55 @@ class DetectionEngine:
 
                         _observe_threshold("C14_dns", 0)
 
+                # MITRE T1110 Brute Force -- real data source: auth_watcher.py
 
-                        _observe_threshold("C14_dns", 0)
+                # (new this session) tails /var/log/auth.log for real failed
 
+                # SSH logins and forwards them as type=auth_failure events.
 
+                if e.get("type") == "auth_failure":
 
+                    _src_ip = e.get("daddr") or "unknown"
 
+                    _now_t = time.time()
+
+                    _hist = self._t1110_failures.setdefault(_src_ip, [])
+
+                    _hist.append(_now_t)
+
+                    _hist[:] = [t for t in _hist if _now_t - t <= T1110_WINDOW_SEC]
+
+                    _bf = check_t1110_brute_force(len(_hist), T1110_WINDOW_SEC)
+
+                    if _bf:
+
+                        _bf_conf = _mitre_confidence.get(_bf.severity, 60)
+
+                        detections.append(Detection(
+
+                            rule_id     = f"MITRE_{_bf.technique_id}",
+
+                            severity    = _bf.severity,
+
+                            title       = f"{_bf.technique_id}: {_bf.technique_name}",
+
+                            description = f"{_bf.reason} (source: {_src_ip})",
+
+                            confidence  = _bf_conf,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, f"mitre_{_bf.technique_id}", _bf.reason[:100])
+
+                        _observe_threshold(f"mitre_{_bf.technique_id}", _bf_conf)
+
+                        _hist.clear()  # reset window after firing, avoid re-alerting every subsequent event
+
+                    else:
+
+                        _observe_threshold("mitre_T1110", 0)
 
                 try:
                     l = self._lolbin.check_event(e)
