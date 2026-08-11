@@ -540,7 +540,11 @@ class DetectionEngine:
                 e_ppid = e.get("ppid", 0)
                 parent_comm = self._pid_comm_cache.get(e_ppid, "")
                 if parent_comm and e_comm:
-                    chain_alert = self._lolbin.check_process_chain(parent_comm, e_comm)
+                    try:
+                        chain_alert = self._lolbin.check_process_chain(parent_comm, e_comm)
+                    except Exception as _ex_lb:
+                        log.error(f"LOLBin chain detector crashed: {_ex_lb}")
+                        chain_alert = None
                     if chain_alert:
                         detections.append(Detection(
                             rule_id     = "C14_LOLBIN_CHAIN",
@@ -605,7 +609,11 @@ class DetectionEngine:
 
                 # C10: Identity Intelligence
 
-                pth = self._identity.check_pass_the_hash(e)
+                try:
+                    pth = self._identity.check_pass_the_hash(e)
+                except Exception as _ex_id:
+                    log.error(f"Identity PtH detector crashed: {_ex_id}")
+                    pth = None
 
                 if pth:
 
@@ -635,7 +643,11 @@ class DetectionEngine:
 
                     _observe_threshold("C10_identity", 0)
 
-                travel = self._identity.check_impossible_travel(e)
+                try:
+                    travel = self._identity.check_impossible_travel(e)
+                except Exception as _ex_tv:
+                    log.error(f"Identity impossible-travel detector crashed: {_ex_tv}")
+                    travel = None
 
                 if travel:
 
@@ -722,7 +734,11 @@ class DetectionEngine:
 
                 # C9-lite: Memory/Exploit unified scorer
 
-                mx = self._memory_exploit.check_event(e)
+                try:
+                    mx = self._memory_exploit.check_event(e)
+                except Exception as _ex_mx:
+                    log.error(f"MemoryExploit detector crashed: {_ex_mx}")
+                    mx = None
 
                 if mx:
 
@@ -784,7 +800,11 @@ class DetectionEngine:
 
                     )
 
-                    doh = self._doh.analyze(_flow)
+                    try:
+                        doh = self._doh.analyze(_flow)
+                    except Exception as _ex_doh:
+                        log.error(f"DoH detector crashed: {_ex_doh}")
+                        doh = None
 
                     if doh:
 
@@ -824,7 +844,11 @@ class DetectionEngine:
 
                 if e.get("type") == "dns_query" and e.get("file"):
 
-                    dns_alert = self._dns.analyze_query(e.get("file", ""))
+                    try:
+                        dns_alert = self._dns.analyze_query(e.get("file", ""))
+                    except Exception as _ex_dns:
+                        log.error(f"DNS detector crashed: {_ex_dns}")
+                        dns_alert = None
 
                     if dns_alert:
 
@@ -861,7 +885,11 @@ class DetectionEngine:
 
 
 
-                l = self._lolbin.check_event(e)
+                try:
+                    l = self._lolbin.check_event(e)
+                except Exception as _ex_lb2:
+                    log.error(f"LOLBin event detector crashed: {_ex_lb2}")
+                    l = None
                 if l:
                     detections.append(Detection(
                         rule_id     = "C14_LOLBIN",
