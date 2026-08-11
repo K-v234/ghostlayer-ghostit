@@ -9,17 +9,25 @@ Ghost IT -- Auth Failure Watcher (T1110 Brute Force data source)
 
 Tails /var/log/auth.log for real "Failed password" lines and forwards
 
-a genuine auth_failure event to the pipeline over the same TCP +
+a genuine auth_failure event to the pipeline over TLS, using the same
 
-API-key protocol used everywhere else (matches send_to_pipeline's
+certificate-pinned protocol as the Rust agent (tls_pin.rs) -- this
 
-protocol exactly, confirmed working end-to-end this session). This
+watcher runs on the lab VM and talks to Lightsail over the real
 
-is the real data source T1110's check_t1110_brute_force() needs --
+internet, same as the main agent, so it needs the same protection
 
-it was never wireable before because no auth-failure event type
+Day 1's TLS work established. A plain socket here would silently
 
-existed anywhere in the system.
+undo that work for this one component.
+
+
+
+This is the real data source check_t1110_brute_force() needs -- it
+
+was never wireable before because no auth-failure event type existed
+
+anywhere in the system.
 
 
 
@@ -37,9 +45,13 @@ import re
 
 import socket
 
+import ssl
+
 import json
 
 import time
+
+import hashlib
 
 import logging
 
@@ -55,9 +67,13 @@ AUTH_LOG_PATH = os.environ.get("GHOST_AUTH_LOG", "/var/log/auth.log")
 
 PIPELINE_HOST = os.environ.get("GHOST_PIPELINE_HOST", "13.205.24.55")
 
-PIPELINE_PORT = int(os.environ.get("GHOST_PIPELINE_PORT", "9000"))
+PIPELINE_PORT = int(os.environ.get("GHOST_PIPELINE_PORT", "9443"))
 
 API_KEY = os.environ.get("GHOST_API_KEY", "e5fc9ef08eb9a71509e7420ea42cf8577f10da26b43d8a71")
+
+
+
+PINNED_FINGERPRINT = "649c8d857e4d5b7a6ca09cb016d73a5be9dee08f485f67b194a1d9377a5c57e9"
 
 
 
@@ -66,6 +82,38 @@ FAILED_PW_RE = re.compile(
     r"Failed password for (?:invalid user )?(?P<user>\S+) from (?P<src_ip>[\d.]+) port (?P<port>\d+)"
 
 )
+
+
+
+
+
+def _pinned_ssl_context() -> ssl.SSLContext:
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+    ctx.check_hostname = False
+
+    ctx.verify_mode = ssl.CERT_NONE
+
+    return ctx
+
+
+
+
+
+def _verify_pin(sock: ssl.SSLSocket):
+
+    der_cert = sock.getpeercert(binary_form=True)
+
+    if der_cert is None:
+
+        raise ssl.SSLError("no peer certificate presented")
+
+    fingerprint = hashlib.sha256(der_cert).hexdigest()
+
+    if fingerprint != PINNED_FINGERPRINT:
+
+        raise ssl.SSLError(f"cert fingerprint mismatch -- expected {PINNED_FINGERPRINT}, got {fingerprint}")
 
 
 
@@ -99,11 +147,13 @@ def send_event(user: str, src_ip: str):
 
     try:
 
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        raw_sock = socket.create_connection((PIPELINE_HOST, PIPELINE_PORT), timeout=5)
 
-        s.settimeout(3)
+        ctx = _pinned_ssl_context()
 
-        s.connect((PIPELINE_HOST, PIPELINE_PORT))
+        s = ctx.wrap_socket(raw_sock, server_hostname="ghostit-pipeline")
+
+        _verify_pin(s)
 
         s.sendall((API_KEY + "\n").encode())
 
@@ -111,11 +161,11 @@ def send_event(user: str, src_ip: str):
 
         s.close()
 
-        log.info(f"Forwarded auth_failure: user={user} src_ip={src_ip}")
+        log.info(f"Forwarded auth_failure (TLS): user={user} src_ip={src_ip}")
 
-    except OSError as ex:
+    except (OSError, ssl.SSLError) as ex:
 
-        log.error(f"Pipeline unavailable, dropping auth_failure event: {ex}")
+        log.error(f"Pipeline unavailable or TLS error, dropping auth_failure event: {ex}")
 
 
 
