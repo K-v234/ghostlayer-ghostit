@@ -946,11 +946,41 @@ int handle_sendto(struct trace_event_raw_sys_enter *ctx)
 
     }
 
+    /* TLS ClientHello capture via sendto() -- real applications vary:
+       dig's DNS resolver used sendmsg(), but curl's TLS library uses
+       sendto() with a NULL address (socket already connect()'d) for
+       its handshake writes -- confirmed via strace, not assumed.
+       Same tls_fd_cache lookup as the sendmsg-side capture, just
+       reading args[1]/args[2] directly instead of via msghdr, since
+       sendto's buffer+length are direct syscall arguments. */
+    __u64 tls_fd_key = ((__u64)(bpf_get_current_pid_tgid() >> 32) << 32) | (__u32)ctx->args[0];
+    __u8 *tls_marked2 = bpf_map_lookup_elem(&tls_fd_cache, &tls_fd_key);
+    if (tls_marked2) {
+        const void *sendto_buf = (const void *)ctx->args[1];
+        __u64 sendto_len = (__u64)ctx->args[2];
+        if (sendto_buf && sendto_len >= 6) {
+            __u8 first_byte2 = 0;
+            if (bpf_probe_read_user(&first_byte2, 1, sendto_buf) == 0 && first_byte2 == 0x16) {
+                __u16 cap_len2 = (sendto_len > TLS_HELLO_MAX_LEN) ? TLS_HELLO_MAX_LEN : (__u16)sendto_len;
+                struct tls_hello_event *te2 = bpf_ringbuf_reserve(&tls_hello_rb, sizeof(struct tls_hello_event), 0);
+                if (te2) {
+                    te2->timestamp_ns = bpf_ktime_get_ns();
+                    te2->pid = bpf_get_current_pid_tgid() >> 32;
+                    te2->uid = bpf_get_current_uid_gid();
+                    bpf_get_current_comm(&te2->comm, sizeof(te2->comm));
+                    te2->dst_port = 443;
+                    te2->hello_len = cap_len2;
+                    if (bpf_probe_read_user(te2->hello, cap_len2, sendto_buf) != 0) {
+                        te2->hello_len = 0;
+                    }
+                    bpf_ringbuf_submit(te2, 0);
+                }
+            }
+        }
+    }
     return 0;
 
 }
-
-
 SEC("tp/syscalls/sys_enter_recvfrom")
 int handle_recvfrom(struct trace_event_raw_sys_enter *ctx)
 {
