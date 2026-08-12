@@ -136,7 +136,7 @@ struct ghost_event {
 
  * ================================================================== */
 
-#define TLS_HELLO_MAX_LEN 1024
+#define TLS_HELLO_MAX_LEN 2048
 
 
 
