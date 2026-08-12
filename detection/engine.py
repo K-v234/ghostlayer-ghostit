@@ -149,6 +149,7 @@ from detectors.mitre_gap_detectors import (
 from detectors.memory_exploit_detector import MemoryExploitDetector
 from detectors.doh_analyzer import DoHBehavioralAnalyzer, NetworkFlow, DOH_WHITELIST
 from detectors.dns_analyzer import DNSAnalyzer
+from detectors.ja4_fingerprinter import JA4PlusFingerprinter, TLSFlow
 
 # Level set to INFO by default; pass --log-level DEBUG at startup to see
 # verbose internal diagnostics (e.g. C15 window feature values) without
@@ -368,6 +369,7 @@ class DetectionEngine:
         self._memory_exploit = MemoryExploitDetector()
         self._doh = DoHBehavioralAnalyzer()
         self._dns = DNSAnalyzer()
+        self._ja4 = JA4PlusFingerprinter()
         self._t1110_failures = {}  # src_ip -> list of failure timestamps, rolling window
         # PID -> comm cache for process-chain detection (wmic->powershell etc).
         # Populated as events flow through; capped by size since PIDs get
@@ -928,6 +930,79 @@ class DetectionEngine:
                     else:
 
                         _observe_threshold("mitre_T1110", 0)
+
+                # C14: JA4+ TLS fingerprinting -- real data source:
+
+                # eBPF captures the raw TLS ClientHello (both sendmsg
+
+                # and sendto paths, different TLS libraries use
+
+                # different syscalls -- confirmed via real strace).
+
+                # Only the known-C2-hash check is wired; the
+
+                # DoH-resolver check was found to be a guaranteed
+
+                # false-positive flood on all HTTPS traffic and
+
+                # disabled at the detector level (see
+
+                # ja4_fingerprinter.py's own comment).
+
+                if e.get("type") == "tls_client_hello" and e.get("file"):
+
+                    try:
+
+                        _hello_bytes = bytes.fromhex(e.get("file", ""))
+
+                        _flow = TLSFlow(
+
+                            src_ip=e.get("source_ip", "") or "",
+
+                            dst_ip=e.get("daddr", "") or "",
+
+                            dst_port=int(e.get("dport", 0) or 0),
+
+                            client_hello=_hello_bytes,
+
+                        )
+
+                        ja4_alert = self._ja4.analyze(_flow)
+
+                    except Exception as _ex_ja4:
+
+                        log.error(f"JA4 detector crashed: {_ex_ja4}")
+
+                        ja4_alert = None
+
+                    if ja4_alert:
+
+                        _ja4_conf = 95 if ja4_alert.severity == "CRITICAL" else 75
+
+                        detections.append(Detection(
+
+                            rule_id     = "C14_JA4",
+
+                            severity    = ja4_alert.severity.lower(),
+
+                            title       = f"JA4+ C2 fingerprint: {ja4_alert.ja4_hash}",
+
+                            description = ja4_alert.reason,
+
+                            confidence  = _ja4_conf,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, "C14_ja4", ja4_alert.reason[:100])
+
+                        _observe_threshold("C14_ja4", _ja4_conf)
+
+                    else:
+
+                        _observe_threshold("C14_ja4", 0)
+
 
                 try:
                     l = self._lolbin.check_event(e)

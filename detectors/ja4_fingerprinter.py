@@ -203,15 +203,14 @@ class JA4PlusFingerprinter:
                 reason=f"Known C2 JA4+ fingerprint: {ja4}"
             )
 
-        # Check non-whitelisted DoH resolver
-        if flow.dst_port == 443 and flow.dst_ip not in self.DOH_RESOLVER_IPS:
-            return JA4Alert(
-                severity="HIGH",
-                ja4_hash=ja4,
-                dst_ip=flow.dst_ip,
-                dst_port=flow.dst_port,
-                reason=f"DoH connection to non-whitelisted resolver: {flow.dst_ip}"
-            )
+        # Real design bug found and disabled this session: this check
+        # fired HIGH on EVERY non-whitelisted port-443 connection --
+        # i.e. almost all normal HTTPS browsing, not just real DoH
+        # abuse. Never caught before because this detector was never
+        # actually wired to real traffic until now. Disabled until
+        # real DoH-server threat intelligence exists to make this
+        # check meaningfully selective rather than a guaranteed
+        # false-positive flood.
 
         return None
 
