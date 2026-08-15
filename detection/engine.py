@@ -145,6 +145,7 @@ from detectors.mitre_gap_detectors import (
     check_t1059_command_interpreter_abuse, check_t1055_process_injection,
     check_t1547_persistence, check_t1003_credential_dumping,
     check_t1490_inhibit_recovery, check_t1110_brute_force, T1110_WINDOW_SEC,
+    check_t1105_ingress_tool_transfer,
 )
 from detectors.memory_exploit_detector import MemoryExploitDetector
 from detectors.doh_analyzer import DoHBehavioralAnalyzer, NetworkFlow, DOH_WHITELIST
@@ -930,6 +931,75 @@ class DetectionEngine:
                     else:
 
                         _observe_threshold("mitre_T1110", 0)
+
+
+                # MITRE T1105 Ingress Tool Transfer -- doesn't need
+
+                # new capture: check_t1105_ingress_tool_transfer()
+
+                # takes a url param but never actually uses it in its
+
+                # own logic (confirmed by reading the function) --
+
+                # only needs comm (curl/wget) and dest_path, both
+
+                # derivable from existing process_exec args. url
+
+                # left empty since it's genuinely unused downstream.
+
+                if e.get("type") in ("exec", "process_exec") and e.get("comm") in ("curl", "wget"):
+
+                    try:
+
+                        _t1105_args = e.get("args", "") or ""
+
+                        _t1105_tokens = _t1105_args.split()
+
+                        _t1105_dest = ""
+
+                        for _i, _tok in enumerate(_t1105_tokens):
+
+                            if _tok in ("-o", "-O", "--output") and _i + 1 < len(_t1105_tokens):
+
+                                _t1105_dest = _t1105_tokens[_i + 1]
+
+                                break
+
+                        _t1105 = check_t1105_ingress_tool_transfer(e.get("comm", ""), "", _t1105_dest)
+
+                    except Exception as _ex_t1105:
+
+                        log.error(f"T1105 detector crashed: {_ex_t1105}")
+
+                        _t1105 = None
+
+                    if _t1105:
+
+                        _t1105_conf = _mitre_confidence.get(_t1105.severity, 60)
+
+                        detections.append(Detection(
+
+                            rule_id     = f"MITRE_{_t1105.technique_id}",
+
+                            severity    = _t1105.severity,
+
+                            title       = f"{_t1105.technique_id}: {_t1105.technique_name}",
+
+                            description = _t1105.reason,
+
+                            confidence  = _t1105_conf,
+
+                            evidence    = [e],
+
+                        ))
+
+                        _feed_cortex(e_pid, f"mitre_{_t1105.technique_id}", _t1105.reason[:100])
+
+                        _observe_threshold(f"mitre_{_t1105.technique_id}", _t1105_conf)
+
+                    else:
+
+                        _observe_threshold("mitre_T1105", 0)
 
                 # C14: JA4+ TLS fingerprinting -- real data source:
 
