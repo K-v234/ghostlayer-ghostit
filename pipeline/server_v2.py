@@ -255,29 +255,28 @@ def parquet_path_for_now():
     now = datetime.now(timezone.utc)
     return os.path.join(PARQUET_DIR, now.strftime("%Y/%m/%d/%H"), f"batch_{int(time.time()*1000)}_{os.getpid()}.parquet")
 
-def flush_to_parquet(events):
+def alert_parquet_path_for_now():
+    # Alerts live as a SUBDIRECTORY of the same PARQUET_DIR tree
+    # (not a separate root) specifically so every existing glob-based
+    # read (PARQUET_DIR/**/*.parquet in /events/history, /events,
+    # /top, etc.) keeps finding them with zero read-path changes.
+    # Only the write path (this function) and retention cleanup need
+    # to know alerts are special.
+    now = datetime.now(timezone.utc)
+    return os.path.join(PARQUET_DIR, "alerts", now.strftime("%Y/%m/%d/%H"), f"batch_{int(time.time()*1000)}_{os.getpid()}.parquet")
+def _write_parquet_batch(events, path):
     if not events:
         return
-    # Each flush writes its OWN small file (unique timestamp+pid in
-    # filename) instead of read-modify-write of one growing per-hour
-    # file. The old pattern re-read and rewrote the entire hour's
-    # accumulated data on every single flush -- O(n^2) cost over the
-    # course of each hour, and the real scale ceiling under real
-    # multi-endpoint load, not DuckDB itself (DuckDB only reads
-    # Parquet via glob, it never writes). DuckDB's glob-based query
-    # path already reads across multiple files natively, so this
-    # requires no read-path changes.
-    path = parquet_path_for_now()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     rows = {f.name: [] for f in SCHEMA}
     for e in events:
         rows["id"].append(e.get("id", 0))
         rows["ts"].append(int(e.get("ts", 0)))
         rows["received_at"].append(int(e.get("received_at", time.time())))
-        rows["pid"].append(int(e.get("pid", 0)))
-        rows["ppid"].append(int(e.get("ppid", 0)))
-        rows["uid"].append(int(e.get("uid", 0)))
-        rows["gid"].append(int(e.get("gid", 0)))
+        rows["pid"].append(int(e.get("pid") or 0))
+        rows["ppid"].append(int(e.get("ppid") or 0))
+        rows["uid"].append(int(e.get("uid") or 0))
+        rows["gid"].append(int(e.get("gid") or 0))
         rows["comm"].append(str(e.get("comm", "")))
         rows["type"].append(str(e.get("type") or e.get("event_type") or ""))
         rows["score"].append(int(e.get("score", 0)))
@@ -293,13 +292,25 @@ def flush_to_parquet(events):
         rows["dpdp_pii_flag"].append(bool(e.get("dpdp_pii_flag", False)))
         rows["integrity"].append(int(e.get("integrity") or 0))
     table = pa.table(rows, schema=SCHEMA)
-    # No read-modify-write: each flush has a unique filename now (see
-    # parquet_path_for_now), so there's never an existing file at this
-    # exact path to merge with. Atomic write still applies -- temp file
-    # + rename prevents a half-written file from being read mid-write.
     tmp_path = path + ".tmp"
     pq.write_table(table, tmp_path, compression="snappy", row_group_size=10_000)
     os.replace(tmp_path, path)
+def flush_to_parquet(events):
+    if not events:
+        return
+    # Real Week 3 split: detection alerts go to their own subtree
+    # with their own (longer) retention -- raw telemetry and alerts
+    # previously shared one 90-day cutoff, meaning old alerts (real
+    # evidence of past detections, worth keeping far longer for
+    # audit/history) got deleted on the exact same schedule as
+    # routine raw syscall telemetry. Same row-building/write logic
+    # either way, just split by destination.
+    alert_events = [e for e in events if (e.get("type") or e.get("event_type") or "") == "detection"]
+    raw_events   = [e for e in events if (e.get("type") or e.get("event_type") or "") != "detection"]
+    if raw_events:
+        _write_parquet_batch(raw_events, parquet_path_for_now())
+    if alert_events:
+        _write_parquet_batch(alert_events, alert_parquet_path_for_now())
 
 
 
@@ -2139,15 +2150,24 @@ def run_heartbeat_server(host, port):
 def _retention_cleanup():
     while True:
         time.sleep(3600)
-        cutoff = time.time() - 90 * 86400
+        # Real Week 3 split: alerts (real evidence of past
+        # detections) get a full year of retention -- previously
+        # shared the exact same 90-day cutoff as routine raw
+        # telemetry, deleting real audit-worthy detection history far
+        # sooner than it should have been kept.
+        raw_cutoff = time.time() - 90 * 86400
+        alert_cutoff = time.time() - 365 * 86400
+        alerts_root = os.path.join(PARQUET_DIR or "", "alerts")
         for root, dirs, files in os.walk(PARQUET_DIR or ""):
+            is_alert_path = root.startswith(alerts_root)
+            cutoff = alert_cutoff if is_alert_path else raw_cutoff
             for f in files:
                 if f.endswith(".parquet"):
                     path = os.path.join(root, f)
                     if os.path.getmtime(path) < cutoff:
                         os.remove(path)
-                        log.info(f"Retention: deleted {path}")
-
+                        _kind = "365d alerts" if is_alert_path else "90d raw"
+                        log.info(f"Retention: deleted {path} (cutoff={_kind})")
 def main():
     global PARQUET_DIR, LEGACY_DB, EVENT_SEQ
     ap = argparse.ArgumentParser()
