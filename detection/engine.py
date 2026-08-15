@@ -327,6 +327,7 @@ def send_to_pipeline(detections: list, host: str, port: int):
         events.append({
             "ts":      int(time.time_ns()),
             "pid": event.get("pid", -1), "ppid": event.get("ppid", -1), "uid": event.get("uid", -1), "gid": event.get("gid", -1),
+            "source_ts": event.get("ts"),  # real MTTD: original event timestamp (ns), preserved through the alert
             "comm":    f"detection:{d.rule_id}",
             "type":    "detection",
             "score":   100,

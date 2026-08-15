@@ -9,6 +9,7 @@ Read path:  DuckDB queries Parquet glob + Hot Buffer union (microseconds, column
 Ghost Layer Technologies — CONFIDENTIAL
 """
 import time, os, json, logging, argparse, threading, socket, duckdb, pathlib
+import statistics
 from datetime import datetime, timezone
 from collections import deque, defaultdict, Counter
 from typing import Optional
@@ -920,6 +921,24 @@ def metrics_endpoint():
     alert_count = sum(1 for e in hot if e.get("alert"))
     unique_pids = len(set(e.get("pid") for e in hot))
     unique_procs = len(set(e.get("comm") for e in hot))
+    # Real MTTD (Mean Time To Detect): for each detection alert
+    # currently in the hot buffer, compare its source_ts (the
+    # original suspicious event's timestamp, preserved through
+    # send_to_pipeline since this session) against received_at (when
+    # the alert itself landed in pipeline). Only real, complete pairs
+    # count -- older alerts from before source_ts existed are
+    # correctly skipped, not treated as zero-latency.
+    _mttd_samples = []
+    for _e in hot:
+        if _e.get("type") == "detection" and _e.get("source_ts") and _e.get("received_at"):
+            try:
+                _latency = _e["received_at"] - (_e["source_ts"] / 1e9)
+                if _latency >= 0:
+                    _mttd_samples.append(_latency)
+            except (TypeError, ValueError):
+                pass
+    _mttd_avg = statistics.mean(_mttd_samples) if _mttd_samples else 0.0
+    _mttd_p95 = statistics.quantiles(_mttd_samples, n=20)[18] if len(_mttd_samples) >= 20 else (max(_mttd_samples) if _mttd_samples else 0.0)
 
     lines = [
         "# HELP ghostit_events_total Real, genuine total events ever received",
@@ -941,6 +960,18 @@ def metrics_endpoint():
         "# HELP ghostit_unique_processes_current Real unique process names in the hot buffer",
         "# TYPE ghostit_unique_processes_current gauge",
         f"ghostit_unique_processes_current {unique_procs}",
+        "",
+        "# HELP ghostit_mttd_seconds_avg Real mean time-to-detect (source event to alert), seconds",
+        "# TYPE ghostit_mttd_seconds_avg gauge",
+        f"ghostit_mttd_seconds_avg {_mttd_avg:.3f}",
+        "",
+        "# HELP ghostit_mttd_seconds_p95 Real p95 time-to-detect, seconds",
+        "# TYPE ghostit_mttd_seconds_p95 gauge",
+        f"ghostit_mttd_seconds_p95 {_mttd_p95:.3f}",
+        "",
+        "# HELP ghostit_mttd_sample_count Real number of detections with a valid source_ts this window",
+        "# TYPE ghostit_mttd_sample_count gauge",
+        f"ghostit_mttd_sample_count {len(_mttd_samples)}",
         "",
     ]
     return Response(content="\n".join(lines), media_type="text/plain")
