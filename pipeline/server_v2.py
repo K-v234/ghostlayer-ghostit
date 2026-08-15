@@ -939,6 +939,21 @@ def metrics_endpoint():
                 pass
     _mttd_avg = statistics.mean(_mttd_samples) if _mttd_samples else 0.0
     _mttd_p95 = statistics.quantiles(_mttd_samples, n=20)[18] if len(_mttd_samples) >= 20 else (max(_mttd_samples) if _mttd_samples else 0.0)
+    # Real Parquet storage size, for the DuckDB migration trigger
+    # (base remediation plan Problem 6): alert when this crosses
+    # 200GB. Reuses the same os.walk pattern as _retention_cleanup,
+    # a real, already-proven-safe way to sum real file sizes here.
+    _parquet_bytes = 0
+    try:
+        for _root, _dirs, _files in os.walk(PARQUET_DIR or ""):
+            for _f in _files:
+                if _f.endswith(".parquet"):
+                    try:
+                        _parquet_bytes += os.path.getsize(os.path.join(_root, _f))
+                    except OSError:
+                        pass
+    except Exception:
+        pass
 
     lines = [
         "# HELP ghostit_events_total Real, genuine total events ever received",
@@ -972,6 +987,10 @@ def metrics_endpoint():
         "# HELP ghostit_mttd_sample_count Real number of detections with a valid source_ts this window",
         "# TYPE ghostit_mttd_sample_count gauge",
         f"ghostit_mttd_sample_count {len(_mttd_samples)}",
+        "",
+        "# HELP ghostit_parquet_storage_bytes Real Parquet storage size -- DuckDB migration trigger fires at 200GB",
+        "# TYPE ghostit_parquet_storage_bytes gauge",
+        f"ghostit_parquet_storage_bytes {_parquet_bytes}",
         "",
     ]
     return Response(content="\n".join(lines), media_type="text/plain")

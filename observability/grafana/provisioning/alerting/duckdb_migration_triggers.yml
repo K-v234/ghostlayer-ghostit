@@ -1,0 +1,87 @@
+
+apiVersion: 1
+
+groups:
+
+  - orgId: 1
+
+    name: DuckDB Migration Triggers
+
+    folder: Ghost IT Alerts
+
+    interval: 5m
+
+    rules:
+
+      - uid: ghostit-parquet-200gb
+
+        title: Parquet storage exceeds 200GB (DuckDB migration trigger)
+
+        condition: C
+
+        data:
+
+          - refId: A
+
+            relativeTimeRange:
+
+              from: 600
+
+              to: 0
+
+            datasourceUid: PBFA97CFB590B2093
+
+            model:
+
+              expr: ghostit_parquet_storage_bytes
+
+              instant: true
+
+              refId: A
+
+          - refId: C
+
+            relativeTimeRange:
+
+              from: 600
+
+              to: 0
+
+            datasourceUid: __expr__
+
+            model:
+
+              type: threshold
+
+              expression: A
+
+              conditions:
+
+                - evaluator:
+
+                    type: gt
+
+                    params:
+
+                      - 214748364800
+
+              refId: C
+
+        noDataState: NoData
+
+        execErrState: Error
+
+        for: 30m
+
+        labels:
+
+          severity: warning
+
+          component: pipeline
+
+        annotations:
+
+          summary: "Parquet storage has exceeded 200GB -- base remediation plan Problem 6 migration trigger has fired"
+
+          description: "Real, numeric migration trigger condition met. Time to move forward with the ADR-006 migration PoC destination, not a false alarm -- this threshold was deliberately set to be meaningful, not conservative."
+

@@ -1,193 +1,232 @@
-
 {
-
-  "title": "Ghost IT — Detection Health",
-
+  "title": "Ghost IT \u2014 Detection Health",
   "uid": "ghostit-detection-health",
-
   "timezone": "browser",
-
   "schemaVersion": 39,
-
   "version": 1,
-
   "refresh": "30s",
-
-  "time": { "from": "now-6h", "to": "now" },
-
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "panels": [
-
     {
-
       "id": 1,
-
       "title": "Mean Time To Detect (MTTD)",
-
       "type": "stat",
-
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "ghostit_mttd_seconds_avg", "refId": "A" }
-
+        {
+          "expr": "ghostit_mttd_seconds_avg",
+          "refId": "A"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "s", "decimals": 3 },
-
+        "defaults": {
+          "unit": "s",
+          "decimals": 3
+        },
         "overrides": []
-
       }
-
     },
-
     {
-
       "id": 2,
-
       "title": "MTTD p95",
-
       "type": "stat",
-
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "ghostit_mttd_seconds_p95", "refId": "A" }
-
+        {
+          "expr": "ghostit_mttd_seconds_p95",
+          "refId": "A"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "s", "decimals": 3 },
-
+        "defaults": {
+          "unit": "s",
+          "decimals": 3
+        },
         "overrides": []
-
       }
-
     },
-
     {
-
       "id": 3,
-
       "title": "MTTD Sample Count (current window)",
-
       "type": "stat",
-
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "ghostit_mttd_sample_count", "refId": "A" }
-
+        {
+          "expr": "ghostit_mttd_sample_count",
+          "refId": "A"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "short", "decimals": 0 },
-
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
         "overrides": []
-
       }
-
     },
-
     {
-
       "id": 4,
-
       "title": "Alerts Currently in Hot Buffer",
-
       "type": "stat",
-
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "ghostit_alerts_current", "refId": "A" }
-
+        {
+          "expr": "ghostit_alerts_current",
+          "refId": "A"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "short", "decimals": 0 },
-
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
         "overrides": []
-
       }
-
     },
-
     {
-
       "id": 5,
-
       "title": "MTTD Average Over Time",
-
       "type": "timeseries",
-
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "ghostit_mttd_seconds_avg", "legendFormat": "avg MTTD (s)", "refId": "A" },
-
-        { "expr": "ghostit_mttd_seconds_p95", "legendFormat": "p95 MTTD (s)", "refId": "B" }
-
+        {
+          "expr": "ghostit_mttd_seconds_avg",
+          "legendFormat": "avg MTTD (s)",
+          "refId": "A"
+        },
+        {
+          "expr": "ghostit_mttd_seconds_p95",
+          "legendFormat": "p95 MTTD (s)",
+          "refId": "B"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "s" },
-
+        "defaults": {
+          "unit": "s"
+        },
         "overrides": []
-
       }
-
     },
-
     {
-
       "id": 6,
-
       "title": "Real Events Total (rate)",
-
       "type": "timeseries",
-
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
-
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
       "targets": [
-
-        { "expr": "rate(ghostit_events_total[5m])", "legendFormat": "events/sec", "refId": "A" }
-
+        {
+          "expr": "rate(ghostit_events_total[5m])",
+          "legendFormat": "events/sec",
+          "refId": "A"
+        }
       ],
-
       "fieldConfig": {
-
-        "defaults": { "unit": "short" },
-
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
-
       }
-
+    },
+    {
+      "id": 7,
+      "title": "Parquet Storage (DuckDB migration trigger: 200GB)",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "ghostit_parquet_storage_bytes",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "max": 214748364800,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 161061273600
+              },
+              {
+                "color": "red",
+                "value": 214748364800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
-
   ]
-
 }
-
