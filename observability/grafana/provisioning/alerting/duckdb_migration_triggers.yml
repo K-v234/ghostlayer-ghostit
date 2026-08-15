@@ -85,3 +85,76 @@ groups:
 
           description: "Real, numeric migration trigger condition met. Time to move forward with the ADR-006 migration PoC destination, not a false alarm -- this threshold was deliberately set to be meaningful, not conservative."
 
+
+      - uid: ghostit-query-p99-50ms
+
+        title: P99 query latency on /events/history exceeds 50ms (DuckDB migration trigger)
+
+        condition: C
+
+        data:
+
+          - refId: A
+
+            relativeTimeRange:
+
+              from: 600
+
+              to: 0
+
+            datasourceUid: PBFA97CFB590B2093
+
+            model:
+
+              expr: ghostit_query_p99_ms
+
+              instant: true
+
+              refId: A
+
+          - refId: C
+
+            relativeTimeRange:
+
+              from: 600
+
+              to: 0
+
+            datasourceUid: __expr__
+
+            model:
+
+              type: threshold
+
+              expression: A
+
+              conditions:
+
+                - evaluator:
+
+                    type: gt
+
+                    params:
+
+                      - 50
+
+              refId: C
+
+        noDataState: NoData
+
+        execErrState: Error
+
+        for: 24h
+
+        labels:
+
+          severity: warning
+
+          component: pipeline
+
+        annotations:
+
+          summary: "P99 /events/history latency has exceeded 50ms, sustained over 24h -- base remediation plan Problem 6 migration trigger has fired"
+
+          description: "Real, numeric migration trigger condition met over the full documented 24h sustain window, not a transient spike. Time to move forward with the ADR-006 migration PoC destination."
+

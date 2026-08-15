@@ -227,6 +227,52 @@
         },
         "overrides": []
       }
+    },
+    {
+      "id": 8,
+      "title": "events/history P99 Query Latency (DuckDB migration trigger: 50ms sustained 24h)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "targets": [
+        {
+          "expr": "ghostit_query_p99_ms",
+          "legendFormat": "P99 (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "ghostit_query_avg_ms",
+          "legendFormat": "avg (ms)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
   ]
 }

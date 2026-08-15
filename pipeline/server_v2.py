@@ -163,6 +163,28 @@ WATCHLIST_TTL_SEC = 600  # 10 minutes elevated scrutiny after confirmation
 EVENT_SEQ    = 0
 SEQ_LOCK     = threading.Lock()
 _flush_pending = []
+# Real query-latency tracking for the DuckDB migration trigger (base
+# remediation plan Problem 6): P99 on /events/history sustained over
+# 24h. A bounded deque (not unbounded) so this can't leak memory --
+# real recent samples only, old ones fall off naturally.
+import functools
+_QUERY_LATENCY_SAMPLES = deque(maxlen=2000)
+_QUERY_LATENCY_LOCK = threading.Lock()
+def _track_query_latency(fn):
+    """Decorator, not a change to the wrapped function's own body --
+    deliberately zero-risk to existing return-path logic inside
+    /events/history. Records real wall-clock duration regardless of
+    how the function exits (success or exception)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        _start = time.monotonic()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _elapsed_ms = (time.monotonic() - _start) * 1000
+            with _QUERY_LATENCY_LOCK:
+                _QUERY_LATENCY_SAMPLES.append(_elapsed_ms)
+    return wrapper
 _flush_lock    = threading.Lock()
 FLUSH_INTERVAL = 300
 FLUSH_COUNT    = 50_000
@@ -954,6 +976,20 @@ def metrics_endpoint():
                         pass
     except Exception:
         pass
+    # Real P99 query latency on /events/history -- the other real,
+    # measurable DuckDB migration trigger from Problem 6 (P99 > 50ms
+    # sustained 24h). Samples come from the real _track_query_latency
+    # decorator on the real endpoint, not synthetic timing.
+    with _QUERY_LATENCY_LOCK:
+        _latency_samples = list(_QUERY_LATENCY_SAMPLES)
+    if _latency_samples:
+        _sorted = sorted(_latency_samples)
+        _p99_idx = min(len(_sorted) - 1, int(len(_sorted) * 0.99))
+        _query_p99_ms = _sorted[_p99_idx]
+        _query_avg_ms = statistics.mean(_latency_samples)
+    else:
+        _query_p99_ms = 0.0
+        _query_avg_ms = 0.0
 
     lines = [
         "# HELP ghostit_events_total Real, genuine total events ever received",
@@ -991,6 +1027,18 @@ def metrics_endpoint():
         "# HELP ghostit_parquet_storage_bytes Real Parquet storage size -- DuckDB migration trigger fires at 200GB",
         "# TYPE ghostit_parquet_storage_bytes gauge",
         f"ghostit_parquet_storage_bytes {_parquet_bytes}",
+        "",
+        "# HELP ghostit_query_p99_ms Real P99 latency on /events/history, milliseconds -- DuckDB migration trigger fires at 50ms sustained 24h",
+        "# TYPE ghostit_query_p99_ms gauge",
+        f"ghostit_query_p99_ms {_query_p99_ms:.2f}",
+        "",
+        "# HELP ghostit_query_avg_ms Real average latency on /events/history, milliseconds",
+        "# TYPE ghostit_query_avg_ms gauge",
+        f"ghostit_query_avg_ms {_query_avg_ms:.2f}",
+        "",
+        "# HELP ghostit_query_sample_count Real number of recent /events/history calls sampled (rolling window, max 2000)",
+        "# TYPE ghostit_query_sample_count gauge",
+        f"ghostit_query_sample_count {len(_latency_samples)}",
         "",
     ]
     return Response(content="\n".join(lines), media_type="text/plain")
@@ -1657,6 +1705,7 @@ def threat_hunt(
         "events": hot_to_result(results),
     })
 @app.get("/events/history")
+@_track_query_latency
 
 def events_history(
 
