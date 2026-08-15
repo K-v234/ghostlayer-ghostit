@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, timeout, Duration};
 use tracing::{info, warn, error, debug};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -150,23 +150,37 @@ impl PipelineForwarder {
 
                 let mut s = stream.lock().await;
                 let send_ok = if let Some(ref mut conn) = *s {
-                    match conn.write_all(pending.as_bytes()).await {
-                        Ok(()) => true,
-                        Err(e) => {
-                            warn!(error = %e, "Pipeline write failed — reconnecting, data remains safely queued in durable outbox");
+                    match timeout(Duration::from_secs(30), conn.write_all(pending.as_bytes())).await {
+                        Ok(Ok(())) => true,
+                        Ok(Err(e)) => {
+                            warn!(error = %e, "Pipeline write failed -- reconnecting, data remains safely queued in durable outbox");
+                            *s = None;
+                            false
+                        }
+                        Err(_) => {
+                            warn!(bytes = pending.len(), "Pipeline write timed out after 30s -- reconnecting, data remains safely queued in durable outbox");
                             *s = None;
                             false
                         }
                     }
                 } else {
-                    match crate::tls_pin::connect(&host, port).await {
-                        Ok(mut conn) => {
+                    match timeout(Duration::from_secs(10), crate::tls_pin::connect(&host, port)).await {
+                        Ok(Ok(mut conn)) => {
                             info!("Pipeline reconnected");
-                            let ok = conn.write_all(pending.as_bytes()).await.is_ok();
-                            *s = Some(conn);
-                            ok
+                            match conn.write_all(pending.as_bytes()).await {
+                                Ok(()) => { *s = Some(conn); true }
+                                Err(e) => {
+                                    warn!(error = %e, "Pipeline reconnected but write failed -- data remains safely queued in durable outbox");
+                                    false
+                                }
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            warn!(error = %e, "Pipeline reconnect failed -- data remains safely queued in durable outbox");
+                            false
                         }
                         Err(_) => {
+                            warn!("Pipeline reconnect timed out after 10s -- data remains safely queued in durable outbox");
                             false
                         }
                     }
@@ -219,10 +233,15 @@ impl PipelineForwarder {
         };
         let mut s = self.stream.lock().await;
         let send_ok = if let Some(ref mut conn) = *s {
-            match conn.write_all(pending.as_bytes()).await {
-                Ok(()) => true,
-                Err(e) => {
-                    error!(error = %e, "Send failed — data remains safely queued in durable outbox");
+            match timeout(Duration::from_secs(30), conn.write_all(pending.as_bytes())).await {
+                Ok(Ok(())) => true,
+                Ok(Err(e)) => {
+                    error!(error = %e, "Send failed -- data remains safely queued in durable outbox");
+                    *s = None;
+                    false
+                }
+                Err(_) => {
+                    warn!(bytes = pending.len(), "Send timed out after 30s -- data remains safely queued in durable outbox");
                     *s = None;
                     false
                 }

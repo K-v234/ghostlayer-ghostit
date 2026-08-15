@@ -29,7 +29,7 @@ pub enum EventType {
     Socket = 35, Accept4 = 36, Dup2 = 37, Dup3 = 38,
     Kill = 39, Tgkill = 40, TcpConnect = 41, TcpAccept = 42,
     TcpClose = 43, UdpSend = 44, UdpRecv = 45,
-    InodePerm = 46, PerfOpen = 47,
+    InodePerm = 46, PerfOpen = 47, DnsQuery = 48,
 }
 
 impl EventType {
@@ -50,7 +50,7 @@ impl EventType {
             37=>Self::Dup2, 38=>Self::Dup3, 39=>Self::Kill,
             40=>Self::Tgkill, 41=>Self::TcpConnect, 42=>Self::TcpAccept,
             43=>Self::TcpClose, 44=>Self::UdpSend, 45=>Self::UdpRecv,
-            46=>Self::InodePerm, 47=>Self::PerfOpen,
+            46=>Self::InodePerm, 47=>Self::PerfOpen, 48=>Self::DnsQuery,
             _ => Self::Unknown,
         }
     }
@@ -75,6 +75,7 @@ impl EventType {
             Self::TcpAccept=>"tcp_accept", Self::TcpClose=>"tcp_close",
             Self::UdpSend=>"udp_send", Self::UdpRecv=>"udp_recv",
             Self::InodePerm=>"inode_perm", Self::PerfOpen=>"perf_open",
+            Self::DnsQuery=>"dns_query",
             Self::Unknown=>"unknown",
         }
     }
@@ -96,6 +97,32 @@ pub struct RawGhostEvent {
     pub comm:         [u8; 16],
     pub path:         [u8; 64],
     pub _pad:         [u8; 12],
+}
+// TLS ClientHello capture struct -- must match struct tls_hello_event
+// in ghost_agent.h exactly. Deliberately separate from RawGhostEvent
+// (see the C-side struct's own comment for why: real ClientHello
+// bytes don't fit path[64], and growing the shared struct would
+// affect every other event type).
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct RawTlsHelloEvent {
+    pub timestamp_ns: u64,
+    pub pid:          u32,
+    pub uid:          u32,
+    pub comm:         [u8; 16],
+    pub dst_ip:       [u8; 4],
+    pub dst_port:     u16,
+    pub hello_len:    u16,
+    pub hello:        [u8; 2048],
+}
+const RAW_TLS_HELLO_SIZE: usize = 8 + 4 + 4 + 16 + 4 + 2 + 2 + 2048;
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
 }
 
 const RAW_EVENT_SIZE: usize = 128;
@@ -237,7 +264,6 @@ pub async fn run_event_loop(
                     if data.len() >= RAW_EVENT_SIZE {
                         let raw = unsafe { &*(data.as_ptr() as *const RawGhostEvent) };
                         if let Some(event) = GhostEvent::from_raw(raw) {
-
                             if let Ok(json) = serde_json::to_value(&event) {
                                 let _ = t.try_send(json);
                             }
@@ -249,9 +275,41 @@ pub async fn run_event_loop(
                 } else {
                     info!("Subscribed to standard_rb");
                 }
+            } else if name == "tls_hello_rb" {
+                let t = tx_std_clone.clone();
+                if let Err(e) = rb_builder.add(map, move |data: &[u8]| {
+                    if data.len() >= RAW_TLS_HELLO_SIZE {
+                        let raw = unsafe { &*(data.as_ptr() as *const RawTlsHelloEvent) };
+                        let comm = std::str::from_utf8(&raw.comm)
+                            .unwrap_or("").trim_end_matches('\0').to_string();
+                        let hello_len = (raw.hello_len as usize).min(2048);
+                        let hello_hex = hex_encode(&raw.hello[..hello_len]);
+                        let dst_ip = format!("{}.{}.{}.{}", raw.dst_ip[0], raw.dst_ip[1], raw.dst_ip[2], raw.dst_ip[3]);
+                        let raw_ts = raw.timestamp_ns;
+                        let raw_pid = raw.pid;
+                        let raw_uid = raw.uid;
+                        let raw_dport = raw.dst_port;
+                        let event = serde_json::json!({
+                            "ts": raw_ts,
+                            "pid": raw_pid,
+                            "uid": raw_uid,
+                            "comm": comm,
+                            "type": "tls_client_hello",
+                            "daddr": dst_ip,
+                            "dport": raw_dport,
+                            "file": hello_hex,
+                            "score": 0,
+                        });
+                        let _ = t.try_send(event);
+                    }
+                    0
+                }) {
+                    warn!("Failed to add {}: {}", name, e);
+                } else {
+                    info!("Subscribed to tls_hello_rb");
+                }
             }
         }
-
         let rb = match rb_builder.build() {
             Ok(r) => r,
             Err(e) => { error!("Ring buffer build failed: {}", e); return; }
