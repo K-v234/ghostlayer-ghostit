@@ -224,6 +224,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=ghostit-admin-2026
     volumes:
       - ghostit-grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - prometheus
     restart: unless-stopped
