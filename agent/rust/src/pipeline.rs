@@ -36,10 +36,16 @@ impl DurableOutbox {
         Ok(buf)
     }
     async fn clear(&self) -> Result<()> {
-        if self.path.exists() {
-            tokio::fs::remove_file(&self.path).await?;
+        // No separate exists() pre-check -- that was the actual race:
+        // another concurrent flush could remove the file between the
+        // check and this call. Just attempt the removal directly and
+        // treat "already gone" as success, since that's the exact
+        // end state we wanted anyway.
+        match tokio::fs::remove_file(&self.path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
         }
-        Ok(())
     }
     fn pending_bytes(&self) -> u64 {
         std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0)
