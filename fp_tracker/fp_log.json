@@ -1,12 +1,13 @@
 {
-  "start_date": "2026-06-26",
+  "start_date": "2026-08-15",
   "days": [
     {
-      "date": "2026-06-26",
+      "date": "2026-08-15",
       "day": 1,
-      "total_alerts": 7,
+      "total_alerts": 59,
       "by_type": {
-        "canary_hit": 7
+        "detection:MITRE_T1110": 58,
+        "detection:C14_LOLBIN": 1
       },
       "false_positives_today": 0
     }

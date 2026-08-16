@@ -77,3 +77,16 @@ forgotten.
 
 Control plane, per-agent mTLS, tenant isolation, secrets manager, model registry, replay engine, feature/graph stores, HA/multi-region, agent/response SDKs, plugin marketplace, "Ghost Platform" rebrand, biological/organism renaming -- all evaluated and rejected as premature for a 3-person team with the current customer count. Each has a real trigger condition (second customer, team growth, a measured scale threshold) recorded in the base architecture remediation plan.
 
+
+
+
+## Resolved this session
+
+
+
+| Item | What was actually wrong | Fix |
+
+|---|---|---|
+
+| 60-day FP tracker | Genuinely dead, not just old: `daily_log.py` queried the lab VM's own local dashboard API (127.0.0.1:8001), which itself queried a local pipeline (127.0.0.1:8000) that no longer exists in the current multi-machine architecture. Both hops silently swallowed the resulting connection failures, producing a falsely-clean "0 alerts" for ~50 consecutive days rather than a visible error. `mark_fp.py` had also never actually been committed to this repo at all -- no way existed to record a real false positive even if one had been found. | Rebuilt `daily_log.py` to run directly on Lightsail, querying the real pipeline's `/alerts` endpoint with the real internal-auth secret (same pattern as `tests/regression_suite.py`) -- no intermediate hop. Grouped by `comm` instead of `type`, since every real alert now shares `type=="detection"`; the actual rule identity lives in `comm` as `detection:{rule_id}`. Wrote `mark_fp.py` from scratch, matching the exact JSON structure `report.py` already expected. Verified all three scripts together end-to-end with real data (59 real alerts, mostly from this session's own MITRE_T1110/LOLBin testing) plus a real mark-and-revert test of the FP-marking flow. New cron job registered on Lightsail (not the lab VM), start date reset to today since the prior ~50 days of "0 alerts" data was never real. |
+
