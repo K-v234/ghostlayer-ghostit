@@ -6,6 +6,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.pipeline
     container_name: ghostit-pipeline
+    cap_add:
+      - SYS_PTRACE
     env_file:
       - /etc/ghostit/.env
     ports:

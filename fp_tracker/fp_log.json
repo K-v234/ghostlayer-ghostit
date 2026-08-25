@@ -10,6 +10,78 @@
         "detection:C14_LOLBIN": 1
       },
       "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-16",
+      "day": 2,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-17",
+      "day": 3,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-18",
+      "day": 4,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-19",
+      "day": 5,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-20",
+      "day": 6,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-21",
+      "day": 7,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-22",
+      "day": 8,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
+    },
+    {
+      "date": "2026-08-23",
+      "day": 9,
+      "total_alerts": 500,
+      "by_type": {
+        "detection:MITRE_T1110": 500
+      },
+      "false_positives_today": 0
     }
   ],
   "false_positives": []
