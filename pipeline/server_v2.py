@@ -118,13 +118,17 @@ def redis_publish(events):
 
     try:
 
+        pipe = r.pipeline(transaction=False)
+
         for e in events:
 
             is_critical = bool(e.get("alert")) or e.get("score", 0) >= 80
 
             stream = STREAM_CRITICAL if is_critical else STREAM_STANDARD
 
-            r.xadd(stream, {"payload": json.dumps(e, default=str)}, maxlen=STREAM_MAXLEN, approximate=True)
+            pipe.xadd(stream, {"payload": json.dumps(e, default=str)}, maxlen=STREAM_MAXLEN, approximate=True)
+
+        pipe.execute()
 
     except Exception as ex:
 
